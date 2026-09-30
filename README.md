@@ -4,8 +4,8 @@ How busy is Melbourne's CBD right now? A live map of pedestrian counts and free
 parking bays, with 24-hour forecasts and a one-line AI summary. Everything runs
 on free tiers, for **$0**.
 
-> Work in progress. Done: data discovery, hourly pipeline. Next: forecast model,
-> map UI, launch.
+> Work in progress. Done: data discovery, hourly pipeline, forecast model.
+> Next: map UI, launch.
 
 ## How it works
 
@@ -23,11 +23,30 @@ City of Melbourne Open Data ──► GitHub Actions (hourly, :07) ──► Neo
   to Gemini Flash for a one-sentence summary, and falls back to a template if
   that fails. `seed_history.py` backfills 8 weeks of history once, so "busier
   than usual" works from day one.
+- **`model/`** (Python, LightGBM). `train.py` learns from two years of hourly
+  counts and writes [REPORT.md](model/REPORT.md). `predict.py` runs daily at
+  ~4am Melbourne time and writes the next 24 hours per sensor, plus the
+  "typical" baseline, into `forecasts`.
 - **`web/`** (Next.js 16, App Router). Server components read Neon over HTTP
   as a read-only role. Pages are cached for an hour and refreshed on demand
   right after each ingest.
 - **`docs/data.md`**: the real API fields, their quirks, and how each was
   checked.
+
+## Forecast results
+
+Tested on the last 8 weeks of data, which the model never saw during training.
+Lower is better.
+
+| Method | Average error (people/hour) | Average % error |
+|---|---:|---:|
+| Same hour last week | 71.5 | 31.6% |
+| Typical (8-week median, the app's baseline) | 61.7 | 25.7% |
+| **LightGBM** | **55.3** | **23.6%** |
+
+LightGBM is 10% more accurate than the app's own baseline, and better in every
+daytime hour. Every input it uses is known at least a week in advance, so
+nothing leaks from the future. [Full report, with chart and method](model/REPORT.md).
 
 ## Free-tier budget
 
@@ -127,6 +146,13 @@ cd pipeline
 ../.venv/bin/python fetch.py --dry-run    # live feeds, no database
 ../.venv/bin/python summary.py --dry-run
 ../.venv/bin/python seed_history.py --dry-run
+
+# model
+cd model
+../.venv/bin/pip install -r requirements-dev.txt
+../.venv/bin/python -m pytest -q          # includes a no-future-leakage test
+../.venv/bin/python train.py              # ~5 min; rewrites model.txt.gz, REPORT.md, chart.png
+../.venv/bin/python predict.py --dry-run
 
 # web
 cd web && npm install && npm run dev

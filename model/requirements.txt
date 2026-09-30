@@ -1,0 +1,7 @@
+# predict.py (daily GitHub Action)
+lightgbm>=4.7,<5
+pandas>=2.2,<4
+numpy>=2,<3
+holidays>=0.105
+requests>=2.32,<3
+psycopg[binary]>=3.2,<4

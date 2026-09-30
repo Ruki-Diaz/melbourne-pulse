@@ -1,0 +1,37 @@
+name: daily-forecast
+
+on:
+  schedule:
+    - cron: "37 17 * * *" # 17:37 UTC = 03:37 AEST / 04:37 AEDT
+  workflow_dispatch:
+
+concurrency:
+  group: daily-forecast
+  cancel-in-progress: false
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: model
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: model/requirements*.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      # No forecasts are written unless the feature tests pass.
+      - name: Tests
+        run: pytest -q
+
+      - name: Forecast next 24 hours
+        run: python predict.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
