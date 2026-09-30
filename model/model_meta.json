@@ -1,0 +1,23 @@
+{
+  "trained_at": "2026-10-01T03:51:27",
+  "columns": [
+    "sensor",
+    "hour",
+    "dow",
+    "month",
+    "public_holiday",
+    "lag_1w",
+    "lag_2w",
+    "typical_8w",
+    "mean_4w",
+    "weeks_available",
+    "day_total_1w",
+    "lag_1w_holiday",
+    "school_holiday",
+    "down_days_4w"
+  ],
+  "objective": "l1",
+  "rounds": 1487,
+  "history_to": "2026-09-29",
+  "size_bytes": 2980439
+}
