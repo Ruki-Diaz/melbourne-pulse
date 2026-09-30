@@ -1,0 +1,70 @@
+[
+ {
+  "location_id": 3,
+  "sensor_description": "Melbourne Central",
+  "sensor_name": "Swa295_T",
+  "installation_date": "2009-03-25",
+  "note": null,
+  "location_type": "Outdoor",
+  "status": "A",
+  "direction_1": "North",
+  "direction_2": "South",
+  "latitude": -37.81101524,
+  "longitude": 144.96429485,
+  "location": {
+   "lon": 144.96429485,
+   "lat": -37.81101524
+  }
+ },
+ {
+  "location_id": 5,
+  "sensor_description": "Princes Bridge",
+  "sensor_name": "PriNW_T",
+  "installation_date": "2009-03-26",
+  "note": "Replace with: 00:6e:02:01:9e:54",
+  "location_type": "Outdoor",
+  "status": "A",
+  "direction_1": "North",
+  "direction_2": "South",
+  "latitude": -37.81874249,
+  "longitude": 144.96787656,
+  "location": {
+   "lon": 144.96787656,
+   "lat": -37.81874249
+  }
+ },
+ {
+  "location_id": 41,
+  "sensor_description": "Flinders La-Swanston St (West)",
+  "sensor_name": "Swa31",
+  "installation_date": "2017-06-29",
+  "note": null,
+  "location_type": "Outdoor",
+  "status": "A",
+  "direction_1": "North",
+  "direction_2": "South",
+  "latitude": -37.81668634,
+  "longitude": 144.96689733,
+  "location": {
+   "lon": 144.96689733,
+   "lat": -37.81668634
+  }
+ },
+ {
+  "location_id": 4,
+  "sensor_description": "Town Hall (West)",
+  "sensor_name": "Swa123_T",
+  "installation_date": "2009-03-23",
+  "note": null,
+  "location_type": "Outdoor",
+  "status": "A",
+  "direction_1": "North",
+  "direction_2": "South",
+  "latitude": -37.81487988,
+  "longitude": 144.9660878,
+  "location": {
+   "lon": 144.9660878,
+   "lat": -37.81487988
+  }
+ }
+]

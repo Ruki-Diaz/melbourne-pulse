@@ -1,0 +1,57 @@
+name: hourly
+
+on:
+  schedule:
+    - cron: "7 * * * *" # every hour at :07 UTC (off the :00 rush; runs start sooner)
+  workflow_dispatch:
+
+concurrency:
+  group: hourly
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: pipeline
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pipeline/requirements*.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      # Nothing below runs unless the tests pass, so a bad commit can't write to the DB.
+      - name: Tests
+        id: tests
+        run: pytest -q
+
+      - name: Fetch live feeds
+        run: python fetch.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      # Still runs if one feed failed (fetch exits 1 but saves the others).
+      - name: AI summary
+        if: ${{ !cancelled() && steps.tests.outcome == 'success' }}
+        run: python summary.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      # Refresh the site while the database is still awake, then request the
+      # page once so it regenerates now rather than on the next visitor.
+      - name: Revalidate website
+        if: ${{ !cancelled() && steps.tests.outcome == 'success' && vars.SITE_URL != '' }}
+        run: |
+          curl -fsS -X POST "$SITE_URL/api/revalidate" -H "Authorization: Bearer $REVALIDATE_SECRET"
+          curl -fsS -o /dev/null "$SITE_URL/"
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+          REVALIDATE_SECRET: ${{ secrets.REVALIDATE_SECRET }}

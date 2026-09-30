@@ -1,28 +1,137 @@
 # Melbourne Pulse
 
-Live map of how busy Melbourne's CBD is: pedestrian counts, free parking bays, and ML forecasts.
-Built on City of Melbourne Open Data. Runs entirely on free tiers.
+How busy is Melbourne's CBD right now? A live map of pedestrian counts and free
+parking bays, with 24-hour forecasts and a one-line AI summary. Everything runs
+on free tiers, for **$0**.
 
-## Setup (about 15 minutes)
-
-1. **Database:** Create a free project at supabase.com. Open SQL Editor, paste `schema.sql`, and click Run.
-2. **Connection string:** In Supabase, go to Connect → Session pooler and copy the URI (it includes your DB password).
-3. **Repo:** Push this folder to a **public** GitHub repo (Actions minutes are free and unlimited on public repos).
-4. **Secret:** In the repo, go to Settings → Secrets and variables → Actions → New secret. Name it `DATABASE_URL` and paste the URI.
-5. **Test:** Go to Actions → fetch-data → Run workflow. It should go green and show `saved N records` for both sources.
-6. From then on it runs every hour by itself.
-
-## Run locally
-
-```bash
-pip install -r requirements.txt
-python fetch.py --dry-run          # no database: prints record counts and field names
-DATABASE_URL="postgresql://..." python fetch.py
-```
+> Work in progress. Done: data discovery, hourly pipeline. Next: forecast model,
+> map UI, launch.
 
 ## How it works
 
-- `fetch.py` downloads both datasets and stores the raw JSON in `snapshots` (3 days of history) and `latest` (one row per source).
-- Old snapshots are deleted every run, so the free 500 MB database never fills up.
-- The website only ever reads `latest`. Row-level security blocks public access to everything else.
-- If a feed fails or returns 0 rows, the run turns red in GitHub Actions so you notice.
+```
+City of Melbourne Open Data ──► GitHub Actions (hourly, :07) ──► Neon Postgres ◄── Next.js on Vercel
+  parking bay sensors              pytest (gate)                 hourly aggregates    (read-only role,
+  pedestrian counts                fetch.py  → aggregates                             ISR, revalidate
+  sensor locations                 summary.py → Gemini Flash                          on demand)
+                                   POST /api/revalidate ────────────────────────────►
+```
+
+- **`pipeline/`** (Python). `fetch.py` sums the per-minute pedestrian feed into
+  hourly counts and the parking feed into CBD-wide totals, then keeps a slim
+  "latest" snapshot for the map. `summary.py` sends a few stats (never raw data)
+  to Gemini Flash for a one-sentence summary, and falls back to a template if
+  that fails. `seed_history.py` backfills 8 weeks of history once, so "busier
+  than usual" works from day one.
+- **`web/`** (Next.js 16, App Router). Server components read Neon over HTTP
+  as a read-only role. Pages are cached for an hour and refreshed on demand
+  right after each ingest.
+- **`docs/data.md`**: the real API fields, their quirks, and how each was
+  checked.
+
+## Free-tier budget
+
+The limits that matter are **Neon Free: 0.5 GB storage and 100 CU-hours a
+month**, with compute scaling to zero after 5 idle minutes. The storage figures
+below were measured on Postgres 16 with real data, not guessed.
+
+### Storage: about 40 MB at 90 days (about 8% of 0.5 GB)
+
+Rows older than 90 days are deleted every hour, so storage stops growing at day 90.
+
+| Table | Working | Size at 90 days |
+|---|---|---:|
+| `pedestrian_hourly` | Measured: 126,454 rows (8-week seed) = 14.4 MB with indexes, so **114 B/row**. 99 live sensors × 24 h × 90 days = 213,840 rows → 24 MB. If all 134 sensors report: 289,440 rows → 33 MB. | 24–33 MB |
+| `parking_hourly` | 24 × 90 = 2,160 rows × ~100 B | 0.2 MB |
+| `latest` | 4 rows. The 6,324-bay parking payload is 575 kB of JSON but 100 kB once Postgres compresses it. Measured 216 kB after vacuum. | 0.2 MB |
+| `forecasts` | 99 sensors × 24 h, replaced daily | 0.3 MB |
+| Postgres system catalogs | Measured size of an empty database | ~7.3 MB |
+| **Total** | | **32–41 MB** |
+
+At 60 days the total is about 24–30 MB (142,560–192,960 pedestrian rows). Each
+hourly run also writes **160 kB** of change history (WAL, measured), about
+3.8 MB/day, which is small next to Neon's short restore window.
+
+### Compute: about 18 CU-hours a month (worst case about 35, out of 100)
+
+Neon bills compute for as long as the database is awake. Each wake costs the
+time spent querying plus 5 idle minutes before it suspends. Compute is fixed at
+the minimum size, **0.25 CU**.
+
+| What wakes the database | Working | CU-h/month |
+|---|---|---:|
+| Hourly ingest | fetch and summary take about 5 s of DB work, plus the page warm-up a few seconds later, so about 5.5 min awake per run. 24 × 30.4 = 730 runs × 5.5/60 h × 0.25 CU | 16.7 |
+| Daily forecast | 30.4 runs × ~6/60 h × 0.25 CU | 0.8 |
+| Website visitors | Pages are cached (`revalidate = 3600`) and re-rendered by the hourly Action while the DB is already awake. Visitors hit the cache. | ~0 |
+| **Typical total** | | **~17.5** |
+| Worst case: GitHub delays the hourly cron past the page's 1-hour cache and a visitor arrives in that gap, every hour | + one extra 5-minute wake per hour = +16.7 | **~34** |
+
+This only holds if the site never queries the database per click. The sensor
+chart data therefore ships inside the cached page instead of coming from an API
+call.
+
+### The other services
+
+- **GitHub Actions:** free and unlimited on a public repo. The hourly job takes
+  about 1 min, so about 730 min/month.
+- **Gemini Flash (free API):** 24 short calls a day, well under the free daily
+  request limit. If it fails or the limit is hit, a template sentence is used.
+- **Vercel Hobby:** one static page per hour plus about 24 calls a day to
+  `/api/revalidate`.
+- **Map tiles:** Leaflet with CARTO/OpenStreetMap, no API key.
+
+## Setup
+
+### 1. Database (Neon, no card needed)
+
+1. Sign up at [neon.tech](https://neon.tech) and create a project in
+   **AWS Asia Pacific (Sydney)**.
+2. **SQL Editor**: paste [pipeline/schema.sql](pipeline/schema.sql) and run it.
+   Then give the read-only role a password (don't commit it):
+   ```sql
+   alter role web_reader password '<output of: openssl rand -base64 32>';
+   ```
+3. **Branch → Compute → Edit**: set compute size to 0.25 CU (min and max) and
+   leave scale-to-zero at 5 minutes.
+4. **Connect**: turn on *Connection pooling* and copy two connection strings:
+   - as the owner role → `DATABASE_URL`
+   - as `web_reader` → `DATABASE_URL_READONLY`
+5. Backfill 8 weeks of history once:
+   ```bash
+   python -m venv .venv && .venv/bin/pip install -r pipeline/requirements-dev.txt
+   cd pipeline && DATABASE_URL='…' ../.venv/bin/python seed_history.py
+   ```
+
+### 2. GitHub (public repo)
+
+**Settings → Secrets and variables → Actions**
+
+| Kind | Name | Value |
+|---|---|---|
+| Secret | `DATABASE_URL` | Neon pooled URL, owner role |
+| Secret | `GEMINI_API_KEY` | from [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
+| Secret | `REVALIDATE_SECRET` | `openssl rand -hex 32` (same value as in Vercel) |
+| Variable | `SITE_URL` | e.g. `https://melbourne-pulse.vercel.app` (add after deploying) |
+
+### 3. Website (Vercel Hobby)
+
+Set these environment variables: `DATABASE_URL_READONLY` and
+`REVALIDATE_SECRET`. Deployment steps come in the final phase.
+
+## Development
+
+```bash
+# pipeline
+cd pipeline
+../.venv/bin/python -m pytest -q          # unit tests on saved real API responses
+../.venv/bin/python fetch.py --dry-run    # live feeds, no database
+../.venv/bin/python summary.py --dry-run
+../.venv/bin/python seed_history.py --dry-run
+
+# web
+cd web && npm install && npm run dev
+```
+
+## Data
+
+City of Melbourne Open Data, CC BY. See [docs/data.md](docs/data.md).
