@@ -65,12 +65,18 @@ Quirks:
 - **Zero minutes are omitted.** Only one row in the whole window has
   `total_of_directions = 0`, so a missing minute means a count of 0.
 - **Granularity varies by sensor.** Location 3 reports 60 rows an hour.
-  Location 5 reports 12, one per 5 minutes. Always `sum()` per hour. Never
-  count rows.
-- **Size.** A full `/exports/json` is **about 10.6 MB**. Stored hourly for 3 days,
-  that is about 760 MB, which is more than Supabase's 500 MB free tier. The fetch
-  should filter on the server:
-  `where=sensing_datetime >= now(hours=-2)` returns about 80 KB per hour of data.
+  Location 5 reports 12, one per 5 minutes. On 2026-09-29, 55 of 99 sensors
+  reported in 5-minute buckets. Always `sum()` per hour. Never count rows.
+- **5-minute rows are counts, not rates (verified).** For every sensor with data
+  in local 2026-09-30 00:00–03:00 (271 sensor-hours: 151 from 5-minute sensors,
+  120 from 1-minute sensors), `sum(total_of_directions)` equals the city's own
+  hourly `pedestriancount` exactly, with 0 mismatches. If the rows were
+  per-minute rates, the 5-minute sums would be 5× too small.
+  `direction_1 + direction_2 = total_of_directions` on every row. The unit test
+  `test_hourly_sums_match_city_hourly_dataset` keeps this check running against
+  saved real data.
+- **Size.** A full `/exports/json` is **about 10.6 MB**. `fetch.py` asks only for
+  the last 3 hours (`where=sensing_datetime >= date'…'`), which is about 100 KB.
 
 ## 3. `pedestrian-counting-system-sensor-locations`
 
@@ -118,6 +124,14 @@ That matches the per-minute sum over `2026-09-29 14:00–15:00 UTC`, which is al
 **2026-10-04**, so forecasts must build timestamps in `Australia/Melbourne`, not
 with a fixed +10 offset.
 
+**DST days.** The spring-forward day (2025-10-05) has 23 rows per sensor and no
+`hourday = 2`, which is correct. The fall-back day (2026-04-05) has only **24**
+rows, so its two 02:00 hours share one `hourday = 2` row. That value is about
+1.4–1.7× the average of the hours either side, compared with 0.8–0.9× on
+ordinary Sundays, so the row looks merged. `seed_history.py` and model training
+skip that ambiguous hour (`local_hour_to_utc` returns `None`) rather than store a
+double-counted value.
+
 **Download.** `/exports/csv?select=location_id,sensing_date,hourday,pedestriancount`
 returns about 1.4 MB per month (4 s). Two years is about 35 MB, which is fine for a
 daily GitHub Action. Pulling month by month with a `where` filter keeps each
@@ -125,19 +139,23 @@ request small and lets a failed month be retried on its own.
 
 ---
 
-## Decisions for later phases
+## How the pipeline uses this
 
-1. **Pedestrian live:** export with a `where` filter for the last 2 hours, then sum
-   `total_of_directions` per `location_id` over the latest complete hour.
-2. **Parking live:** full export (about 1.5 MB). Status is `Present` = occupied and
-   `Unoccupied` = free. Ignore bays with `lastupdated` older than 24 h.
-3. **Sensors:** store `sensor-locations` in `latest` (source `sensors`). It is tiny
-   and rarely changes.
-4. **"Typical" level:** the mean `pedestriancount` per
-   (`location_id`, day of week, `hourday`) from the monthly dataset.
-5. **Existing root `fetch.py`** downloads the full 10.6 MB pedestrian feed every
-   hour, which would fill the free database in about 2 days. Phase 1 fixes this
-   with point 1.
+1. **Pedestrians:** each hour, `fetch.py` downloads the last 3 hours and sums
+   `total_of_directions` per sensor per hour. It then upserts the two most recent
+   hours into `pedestrian_hourly`. The newest hour is still filling up and gets
+   `is_partial = true`; the hour before is re-written so late minutes land. A
+   sensor seen in the window with no rows in an hour gets 0 for that hour.
+2. **Parking:** full export (about 1.5 MB). `Present` = occupied and
+   `Unoccupied` = free. A bay is *stale* if `lastupdated` is more than 24 h old;
+   stale bays are left out of `pct_free`. `latest.parking` holds only
+   `{kerbsideid, lat, lon, free, stale}` per bay.
+3. **Sensors:** `sensor-locations` is stored slimmed in `latest` (source `sensors`).
+4. **"Typical":** the median of the same sensor, weekday and local hour over the
+   previous 8 weeks of non-partial rows in `pedestrian_hourly`. `seed_history.py`
+   backfills those 8 weeks from the monthly dataset (skipping its partial newest
+   day), so this works from day one.
+5. **No raw snapshots** are stored. Only hourly aggregates are kept, for 90 days.
 6. **Attribution:** "City of Melbourne Open Data, CC BY". The monthly dataset's
    metadata leaves `license` empty, but it belongs to the same CC BY
    pedestrian-counting collection.

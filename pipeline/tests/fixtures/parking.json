@@ -1,0 +1,882 @@
+[
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T02:30:57+00:00",
+"zone_number": 7084,
+"status_description": "Present",
+"kerbsideid": 8735,
+"location": {
+"lon": 144.96120480793184,
+"lat": -37.80223335664963
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-27T23:23:40+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8749,
+"location": {
+"lon": 144.9618505999636,
+"lat": -37.80230361629087
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T02:57:41+00:00",
+"zone_number": 7084,
+"status_description": "Present",
+"kerbsideid": 8738,
+"location": {
+"lon": 144.961350677226,
+"lat": -37.80224848587544
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-27T22:25:48+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8742,
+"location": {
+"lon": 144.96152667783582,
+"lat": -37.80226817919086
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T02:22:55+00:00",
+"zone_number": 7084,
+"status_description": "Present",
+"kerbsideid": 8752,
+"location": {
+"lon": 144.9613799225275,
+"lat": -37.80225168938629
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T02:50:49+00:00",
+"zone_number": 7084,
+"status_description": "Present",
+"kerbsideid": 8754,
+"location": {
+"lon": 144.9610582939215,
+"lat": -37.802216688584906
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T03:03:02+00:00",
+"zone_number": 7084,
+"status_description": "Present",
+"kerbsideid": 8731,
+"location": {
+"lon": 144.96102904863818,
+"lat": -37.80221348499492
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T02:53:41+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8736,
+"location": {
+"lon": 144.96129218606376,
+"lat": -37.802242080448615
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T02:57:26+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8737,
+"location": {
+"lon": 144.9613214313597,
+"lat": -37.802245282357404
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-27T10:09:44+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8739,
+"location": {
+"lon": 144.9614389418973,
+"lat": -37.80225856919544
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-27T08:40:20+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8740,
+"location": {
+"lon": 144.96146818720734,
+"lat": -37.80226177268457
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-10-19T13:31:48+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8751,
+"location": {
+"lon": 144.96170212543996,
+"lat": -37.80228717056752
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T01:15:59+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8743,
+"location": {
+"lon": 144.96161438831626,
+"lat": -37.802277599315886
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T03:14:47+00:00",
+"zone_number": 7084,
+"status_description": "Present",
+"kerbsideid": 8750,
+"location": {
+"lon": 144.96155592654753,
+"lat": -37.802271382658404
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T02:06:51+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8741,
+"location": {
+"lon": 144.96149743252016,
+"lat": -37.8022649761665
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-27T06:31:45+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8747,
+"location": {
+"lon": 144.96179210870582,
+"lat": -37.80229720947396
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-10-19T13:31:32+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8748,
+"location": {
+"lon": 144.96182135461714,
+"lat": -37.80230041287619
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T02:40:31+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8753,
+"location": {
+"lon": 144.9612340509617,
+"lat": -37.80223656015707
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T03:17:09+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8732,
+"location": {
+"lon": 144.96099980337007,
+"lat": -37.80221028139775
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T02:31:41+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8744,
+"location": {
+"lon": 144.9616436342106,
+"lat": -37.802280763677544
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T02:31:34+00:00",
+"zone_number": 7084,
+"status_description": "Present",
+"kerbsideid": 8733,
+"location": {
+"lon": 144.9611463167968,
+"lat": -37.80222694998491
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T01:08:40+00:00",
+"zone_number": 7084,
+"status_description": "Present",
+"kerbsideid": 8734,
+"location": {
+"lon": 144.96117556264676,
+"lat": -37.80223015354606
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T03:15:03+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8728,
+"location": {
+"lon": 144.9609705575371,
+"lat": -37.802207077793355
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T02:32:55+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8730,
+"location": {
+"lon": 144.96111707151726,
+"lat": -37.802223746396926
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-27T17:25:40+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8745,
+"location": {
+"lon": 144.96167287954006,
+"lat": -37.80228396713595
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-10-19T11:10:53+00:00",
+"zone_number": 7084,
+"status_description": "Unoccupied",
+"kerbsideid": 8746,
+"location": {
+"lon": 144.9617628633649,
+"lat": -37.802294006064535
+}
+},
+{
+"lastupdated": "2024-12-04T23:44:37+00:00",
+"status_timestamp": "2024-11-28T02:00:16+00:00",
+"zone_number": 7084,
+"status_description": "Present",
+"kerbsideid": 8729,
+"location": {
+"lon": 144.9609413122746,
+"lat": -37.80220387416213
+}
+},
+{
+"lastupdated": "2024-12-11T04:44:36+00:00",
+"status_timestamp": "2024-12-06T01:42:44+00:00",
+"zone_number": 7018,
+"status_description": "Unoccupied",
+"kerbsideid": 26279,
+"location": {
+"lon": 144.96233770341735,
+"lat": -37.8018999528026
+}
+},
+{
+"lastupdated": "2024-12-11T04:44:36+00:00",
+"status_timestamp": "2024-06-20T22:03:59+00:00",
+"zone_number": 7018,
+"status_description": "Present",
+"kerbsideid": 26281,
+"location": {
+"lon": 144.9623187882548,
+"lat": -37.802007044484625
+}
+},
+{
+"lastupdated": "2024-12-11T04:44:36+00:00",
+"status_timestamp": "2024-12-06T01:22:20+00:00",
+"zone_number": 7018,
+"status_description": "Unoccupied",
+"kerbsideid": 26280,
+"location": {
+"lon": 144.9623282461336,
+"lat": -37.80195349886469
+}
+},
+{
+"lastupdated": "2024-12-30T00:44:37+00:00",
+"status_timestamp": "2024-08-18T08:23:46+00:00",
+"zone_number": 7394,
+"status_description": "Unoccupied",
+"kerbsideid": 9344,
+"location": {
+"lon": 144.95916129121264,
+"lat": -37.80494402936792
+}
+},
+{
+"lastupdated": "2024-12-30T00:44:37+00:00",
+"status_timestamp": "2024-08-21T03:58:04+00:00",
+"zone_number": 7394,
+"status_description": "Present",
+"kerbsideid": 9347,
+"location": {
+"lon": 144.95923156155152,
+"lat": -37.805096352997225
+}
+},
+{
+"lastupdated": "2024-12-30T00:44:37+00:00",
+"status_timestamp": "2024-07-05T11:02:23+00:00",
+"zone_number": 7520,
+"status_description": "Unoccupied",
+"kerbsideid": 9356,
+"location": {
+"lon": 144.9586637442418,
+"lat": -37.804990182314754
+}
+},
+{
+"lastupdated": "2024-12-30T00:44:37+00:00",
+"status_timestamp": "2024-01-18T02:58:11+00:00",
+"zone_number": 7520,
+"status_description": "Unoccupied",
+"kerbsideid": 9367,
+"location": {
+"lon": 144.9589842734913,
+"lat": -37.80568474625133
+}
+},
+{
+"lastupdated": "2024-12-30T00:44:37+00:00",
+"status_timestamp": "2024-08-11T11:07:54+00:00",
+"zone_number": 7394,
+"status_description": "Unoccupied",
+"kerbsideid": 9345,
+"location": {
+"lon": 144.9591846617755,
+"lat": -37.80499480404235
+}
+},
+{
+"lastupdated": "2024-12-30T00:44:37+00:00",
+"status_timestamp": "2024-03-31T12:33:16+00:00",
+"zone_number": null,
+"status_description": "Present",
+"kerbsideid": 9351,
+"location": {
+"lon": 144.95951121701592,
+"lat": -37.80570432547628
+}
+},
+{
+"lastupdated": "2024-12-30T00:44:37+00:00",
+"status_timestamp": "2024-08-20T07:55:24+00:00",
+"zone_number": 7520,
+"status_description": "Unoccupied",
+"kerbsideid": 9366,
+"location": {
+"lon": 144.95896100249817,
+"lat": -37.805633939220755
+}
+},
+{
+"lastupdated": "2024-12-30T00:44:37+00:00",
+"status_timestamp": "2024-08-21T00:34:50+00:00",
+"zone_number": 7394,
+"status_description": "Present",
+"kerbsideid": 9338,
+"location": {
+"lon": 144.95899052123454,
+"lat": -37.80457312730523
+}
+},
+{
+"lastupdated": "2024-12-30T00:44:37+00:00",
+"status_timestamp": "2024-08-21T00:34:08+00:00",
+"zone_number": 7394,
+"status_description": "Unoccupied",
+"kerbsideid": 9341,
+"location": {
+"lon": 144.95909104692146,
+"lat": -37.804791726138646
+}
+},
+{
+"lastupdated": "2024-12-30T00:44:37+00:00",
+"status_timestamp": "2024-08-21T00:37:20+00:00",
+"zone_number": 7520,
+"status_description": "Unoccupied",
+"kerbsideid": 9358,
+"location": {
+"lon": 144.95870953227987,
+"lat": -37.805089616110834
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T15:09:54+00:00",
+"zone_number": 7753,
+"status_description": "Unoccupied",
+"kerbsideid": 9623,
+"location": {
+"lon": 144.94861316805952,
+"lat": -37.80497194170077
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T12:33:17+00:00",
+"zone_number": 7753,
+"status_description": "Present",
+"kerbsideid": 9628,
+"location": {
+"lon": 144.9484591379828,
+"lat": -37.804954659214715
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2024-06-27T07:52:31+00:00",
+"zone_number": 7753,
+"status_description": "Unoccupied",
+"kerbsideid": 9636,
+"location": {
+"lon": 144.94832374754162,
+"lat": -37.80504385251781
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2024-06-27T07:00:57+00:00",
+"zone_number": 7753,
+"status_description": "Unoccupied",
+"kerbsideid": 9637,
+"location": {
+"lon": 144.94835121552725,
+"lat": -37.80504702586939
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2024-07-12T08:00:53+00:00",
+"zone_number": 7753,
+"status_description": "Unoccupied",
+"kerbsideid": 9641,
+"location": {
+"lon": 144.94846394844632,
+"lat": -37.80505969380327
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2024-06-27T06:34:00+00:00",
+"zone_number": 7753,
+"status_description": "Unoccupied",
+"kerbsideid": 9642,
+"location": {
+"lon": 144.94849204152175,
+"lat": -37.80506285277592
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2024-06-27T06:02:51+00:00",
+"zone_number": 7753,
+"status_description": "Unoccupied",
+"kerbsideid": 9643,
+"location": {
+"lon": 144.94852001231618,
+"lat": -37.805065616316924
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2024-06-27T07:54:41+00:00",
+"zone_number": 7753,
+"status_description": "Unoccupied",
+"kerbsideid": 9644,
+"location": {
+"lon": 144.94868878910142,
+"lat": -37.805084823715234
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2024-06-27T06:07:49+00:00",
+"zone_number": 7753,
+"status_description": "Unoccupied",
+"kerbsideid": 9647,
+"location": {
+"lon": 144.94860444949109,
+"lat": -37.80507544979444
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2025-02-06T19:15:07+00:00",
+"zone_number": 7752,
+"status_description": "Unoccupied",
+"kerbsideid": 10668,
+"location": {
+"lon": 144.9547529968901,
+"lat": -37.80583679411155
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2025-02-06T20:50:34+00:00",
+"zone_number": 7752,
+"status_description": "Unoccupied",
+"kerbsideid": 10669,
+"location": {
+"lon": 144.9546855399476,
+"lat": -37.80582918528904
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2025-02-06T12:16:24+00:00",
+"zone_number": 7752,
+"status_description": "Unoccupied",
+"kerbsideid": 10670,
+"location": {
+"lon": 144.95461809264532,
+"lat": -37.8058215769871
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2025-02-17T04:15:20+00:00",
+"zone_number": 7752,
+"status_description": "Unoccupied",
+"kerbsideid": 10708,
+"location": {
+"lon": 144.9546246100897,
+"lat": -37.805636720893986
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-02-08T03:59:56+00:00",
+"zone_number": 7739,
+"status_description": "Unoccupied",
+"kerbsideid": 10717,
+"location": {
+"lon": 144.95107610157768,
+"lat": -37.80402395233904
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-02-08T00:56:25+00:00",
+"zone_number": 7739,
+"status_description": "Present",
+"kerbsideid": 10720,
+"location": {
+"lon": 144.95104331653448,
+"lat": -37.804209324676066
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-02-08T04:03:08+00:00",
+"zone_number": 7739,
+"status_description": "Unoccupied",
+"kerbsideid": 10722,
+"location": {
+"lon": 144.95101886482954,
+"lat": -37.8043469371667
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-02-08T05:11:26+00:00",
+"zone_number": 7739,
+"status_description": "Present",
+"kerbsideid": 10728,
+"location": {
+"lon": 144.95096207810545,
+"lat": -37.804668600290526
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-02-07T07:46:00+00:00",
+"zone_number": 7739,
+"status_description": "Present",
+"kerbsideid": 10729,
+"location": {
+"lon": 144.9509534359205,
+"lat": -37.80471780523308
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-02-08T01:16:08+00:00",
+"zone_number": 7739,
+"status_description": "Present",
+"kerbsideid": 10731,
+"location": {
+"lon": 144.9509150266006,
+"lat": -37.80492798408554
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-01-10T02:31:26+00:00",
+"zone_number": 7740,
+"status_description": "Present",
+"kerbsideid": 10746,
+"location": {
+"lon": 144.95091824334895,
+"lat": -37.8035841184862
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T10:05:55+00:00",
+"zone_number": 7981,
+"status_description": "Unoccupied",
+"kerbsideid": 10880,
+"location": {
+"lon": 144.95029019712229,
+"lat": -37.80541377418428
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T04:24:43+00:00",
+"zone_number": 7981,
+"status_description": "Unoccupied",
+"kerbsideid": 10883,
+"location": {
+"lon": 144.95037180684574,
+"lat": -37.80542300884731
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T03:31:45+00:00",
+"zone_number": 7981,
+"status_description": "Unoccupied",
+"kerbsideid": 10892,
+"location": {
+"lon": 144.95030026819356,
+"lat": -37.805513755265714
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-29T08:52:33+00:00",
+"zone_number": 7981,
+"status_description": "Unoccupied",
+"kerbsideid": 10896,
+"location": {
+"lon": 144.95040905616437,
+"lat": -37.80552621068088
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T08:23:38+00:00",
+"zone_number": 7981,
+"status_description": "Unoccupied",
+"kerbsideid": 10897,
+"location": {
+"lon": 144.950436260035,
+"lat": -37.80552929037984
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T09:58:38+00:00",
+"zone_number": 7981,
+"status_description": "Unoccupied",
+"kerbsideid": 10903,
+"location": {
+"lon": 144.95011222818545,
+"lat": -37.80546999750474
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T09:07:22+00:00",
+"zone_number": 7981,
+"status_description": "Unoccupied",
+"kerbsideid": 10905,
+"location": {
+"lon": 144.95010487957552,
+"lat": -37.80551466654548
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T10:09:03+00:00",
+"zone_number": 7981,
+"status_description": "Unoccupied",
+"kerbsideid": 10906,
+"location": {
+"lon": 144.95010120498932,
+"lat": -37.80553700129558
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T09:55:14+00:00",
+"zone_number": 7722,
+"status_description": "Unoccupied",
+"kerbsideid": 11178,
+"location": {
+"lon": 144.9481982654575,
+"lat": -37.8032514892148
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T09:53:21+00:00",
+"zone_number": 7728,
+"status_description": "Present",
+"kerbsideid": 12030,
+"location": {
+"lon": 144.95308777517064,
+"lat": -37.79837334237603
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T10:52:26+00:00",
+"zone_number": 7728,
+"status_description": "Present",
+"kerbsideid": 12031,
+"location": {
+"lon": 144.95315447010427,
+"lat": -37.79842653247071
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2022-12-30T12:40:42+00:00",
+"zone_number": 7766,
+"status_description": "Unoccupied",
+"kerbsideid": 12076,
+"location": {
+"lon": 144.95327369052112,
+"lat": -37.80090875683292
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-04-01T20:40:53+00:00",
+"zone_number": 7766,
+"status_description": "Present",
+"kerbsideid": 12091,
+"location": {
+"lon": 144.95413891553204,
+"lat": -37.80049100911073
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-04-01T20:45:26+00:00",
+"zone_number": 7766,
+"status_description": "Present",
+"kerbsideid": 12094,
+"location": {
+"lon": 144.9539859172739,
+"lat": -37.80061171476536
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T04:58:16+00:00",
+"zone_number": 7720,
+"status_description": "Unoccupied",
+"kerbsideid": 12112,
+"location": {
+"lon": 144.95212787634355,
+"lat": -37.79858840728779
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-27T10:02:36+00:00",
+"zone_number": 7720,
+"status_description": "Unoccupied",
+"kerbsideid": 12113,
+"location": {
+"lon": 144.952107633023,
+"lat": -37.798604286082465
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T04:42:38+00:00",
+"zone_number": 7720,
+"status_description": "Unoccupied",
+"kerbsideid": 12118,
+"location": {
+"lon": 144.9519784768766,
+"lat": -37.79870590145744
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T13:16:46+00:00",
+"zone_number": 7720,
+"status_description": "Present",
+"kerbsideid": 12123,
+"location": {
+"lon": 144.9518417324066,
+"lat": -37.79881275931803
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T00:14:02+00:00",
+"zone_number": 7720,
+"status_description": "Present",
+"kerbsideid": 12125,
+"location": {
+"lon": 144.95179886613525,
+"lat": -37.798846412573006
+}
+},
+{
+"lastupdated": "2026-09-30T17:00:49+00:00",
+"status_timestamp": "2026-09-30T06:02:24+00:00",
+"zone_number": 7720,
+"status_description": "Present",
+"kerbsideid": 12126,
+"location": {
+"lon": 144.95177630840527,
+"lat": -37.79886412173153
+}
+}
+]
