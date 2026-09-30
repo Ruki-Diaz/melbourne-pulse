@@ -21,16 +21,47 @@ from pulse import aggregate
 from pulse.timeutil import local, parse_ts
 
 MAX_WORDS = 25
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+# Pinned versions, not a -latest alias, so output doesn't change under us.
+# Tested 2026-10-01: 3.8 is Google's recommended Flash but often returns 503
+# "high demand"; 3.5 is the fallback. The template is the last resort.
+GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-3.8-flash,gemini-3.5-flash").split(",")
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 PROMPT = """You write the one-line status for "Melbourne Pulse", a live map of
-Melbourne's CBD. Using ONLY these stats, write ONE friendly sentence of at most
-{max_words} words. Plain text, no emoji, no hashtags, no quotes. Don't invent
-numbers, and round any you use. vs_typical_pct compares pedestrians with the
-median for the same weekday and hour over the last 8 weeks (null = unknown).
+Melbourne's CBD. Using ONLY these facts, write ONE friendly sentence of at most
+{max_words} words. Plain text, no emoji, no hashtags, no quotes. Copy any
+percentage exactly as written; don't add numbers that aren't here. You may
+round the people count. "Usual" means the median for this weekday and hour
+over the last 8 weeks.
 
-{stats}"""
+{facts}"""
+
+
+def prompt_facts(stats: dict) -> dict:
+    """Stats pre-worded so the model can't misread a field (e.g. +26% as '26% of usual')."""
+    facts: dict = {}
+    if "pedestrians" in stats:
+        pct = stats["vs_typical_pct"]
+        facts["time"] = f"the hour from {stats['hour_label']} on {stats['day']}"
+        facts["people_counted"] = f"{stats['pedestrians']:,} across {stats['sensors']} sensors"
+        facts["compared_with_usual"] = (
+            "unknown"
+            if pct is None
+            else "about the same as usual"
+            if abs(pct) < 5
+            else f"{abs(pct)}% {'busier' if pct > 0 else 'quieter'} than usual"
+        )
+        facts["busiest_spots"] = [b["name"] for b in stats["busiest"]]
+    if "pct_bays_free" in stats:
+        facts["parking"] = f"{stats['pct_bays_free']}% of parking bays are free"
+    return facts
+
+
+def percentages_ok(sentence: str, stats: dict) -> bool:
+    """Every percentage in the sentence must be one we actually computed."""
+    allowed = {float(abs(v)) for v in (stats.get("vs_typical_pct"), stats.get("pct_bays_free")) if v is not None}
+    found = re.findall(r"(\d+(?:\.\d+)?)\s*(?:%|per ?cent)", sentence, flags=re.IGNORECASE)
+    return all(float(x) in allowed for x in found)
 
 
 def hour_label(dt: datetime) -> str:
@@ -122,27 +153,31 @@ def ask_gemini(stats: dict) -> str | None:
         print("GEMINI_API_KEY not set; using template")
         return None
     body = {
-        "contents": [{"parts": [{"text": PROMPT.format(max_words=MAX_WORDS, stats=json.dumps(stats, indent=1))}]}],
+        "contents": [{"parts": [{"text": PROMPT.format(max_words=MAX_WORDS, facts=json.dumps(prompt_facts(stats), indent=1))}]}],
         "generationConfig": {"temperature": 0.7},
     }
-    try:
-        resp = requests.post(
-            GEMINI_URL.format(model=GEMINI_MODEL),
-            headers={"x-goog-api-key": key},
-            json=body,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        parts = resp.json()["candidates"][0]["content"]["parts"]
-        raw = "".join(p.get("text", "") for p in parts if not p.get("thought"))
-    except Exception as exc:  # noqa: BLE001 - any failure falls back to the template
-        detail = getattr(getattr(exc, "response", None), "text", "")[:200]
-        print(f"Gemini failed ({exc}) {detail}; using template", file=sys.stderr)
-        return None
-    sentence = clean_sentence(raw)
-    if sentence is None:
-        print(f"Gemini reply rejected ({raw!r}); using template", file=sys.stderr)
-    return sentence
+    for model in GEMINI_MODELS:
+        try:
+            resp = requests.post(
+                GEMINI_URL.format(model=model.strip()),
+                headers={"x-goog-api-key": key},
+                json=body,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            parts = resp.json()["candidates"][0]["content"]["parts"]
+            raw = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+        except Exception as exc:  # noqa: BLE001 - try the next model, then the template
+            detail = getattr(getattr(exc, "response", None), "text", "")[:200]
+            print(f"Gemini {model} failed ({exc}) {detail}", file=sys.stderr)
+            continue
+        sentence = clean_sentence(raw)
+        if sentence is not None and percentages_ok(sentence, stats):
+            print(f"Gemini {model} ok")
+            return sentence
+        print(f"Gemini {model} reply rejected ({raw!r})", file=sys.stderr)
+    print("no usable Gemini reply; using template", file=sys.stderr)
+    return None
 
 
 def compose(stats: dict) -> dict:
