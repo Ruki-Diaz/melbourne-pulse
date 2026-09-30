@@ -3,8 +3,9 @@
 Until the hourly job has collected 8 weeks of its own data, 'typical' would have
 nothing to compare against. This backfills pedestrian_hourly from
 pedestrian-counting-system-monthly-counts-per-hour, so the same typical query
-works from day one. Safe to re-run: it never overwrites a complete row the
-hourly job already wrote, only fills gaps and replaces partial hours.
+works from day one. Zero hours the city omits are filled in (pulse.history).
+Safe to re-run: it never overwrites a complete row the hourly job already
+wrote, only fills gaps and replaces partial hours.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import sys
 from datetime import date, datetime, timedelta
 
 from pulse import api
+from pulse.history import complete_days
 from pulse.timeutil import UTC, local, local_hour_to_utc
 from pulse.typical import WEEKS
 
@@ -28,25 +30,20 @@ def load(weeks: int) -> tuple[list[tuple[int, datetime, int]], dict]:
     )
     # The newest day in the dataset is only partly loaded (~1 day lag): skip it.
     newest = max(date.fromisoformat(r["sensing_date"][:10]) for r in raw)
-    rows, skipped_dst, skipped_partial = [], 0, 0
-    for r in raw:
-        day = date.fromisoformat(r["sensing_date"][:10])
-        if day >= newest:
-            skipped_partial += 1
-            continue
-        hour = local_hour_to_utc(day, int(r["hourday"]))
-        if hour is None:  # repeated/skipped 02:00 at a DST change
-            skipped_dst += 1
-            continue
-        rows.append((int(r["location_id"]), hour, int(r["pedestriancount"])))
+    parsed = [
+        (int(r["location_id"]), date.fromisoformat(r["sensing_date"][:10]), int(r["hourday"]), int(r["pedestriancount"]))
+        for r in raw
+    ]
+    complete = complete_days(r for r in parsed if r[1] < newest)
+    rows = [(lid, start, count) for lid, _, _, start, count in complete]
     info = {
         "downloaded": len(raw),
         "kept": len(rows),
+        "zero_hours_filled": len(rows) - sum(1 for r in parsed if r[1] < newest and local_hour_to_utc(r[1], r[2])),
         "from": first.isoformat(),
         "to": (newest - timedelta(days=1)).isoformat(),
         "sensors": len({r[0] for r in rows}),
-        "skipped_newest_day": skipped_partial,
-        "skipped_dst_hour": skipped_dst,
+        "skipped_newest_day": sum(1 for r in parsed if r[1] >= newest),
     }
     return rows, info
 

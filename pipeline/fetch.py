@@ -126,9 +126,10 @@ def save(feeds: Feeds) -> None:
                 typicals = db.typicals_for(conn, feeds.complete_hour) if feeds.complete_hour else {}
                 if feeds.complete_hour:
                     db.upsert_latest(conn, "pedestrian", pedestrian_payload(feeds, typicals))
+            reporting = {h.location_id for h in feeds.pedestrian}
             print(
                 f"[pedestrian] saved {len(feeds.pedestrian)} hourly rows; "
-                f"typical known for {len(typicals)} sensors"
+                f"typical known for {len(reporting & typicals.keys())} of {len(reporting)} sensors"
             )
         if feeds.bays:
             with conn.transaction():

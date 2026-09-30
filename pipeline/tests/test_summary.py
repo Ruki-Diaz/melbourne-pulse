@@ -1,6 +1,6 @@
 import pytest
 
-from summary import MAX_WORDS, build_stats, clean_sentence, template, words
+from summary import MAX_WORDS, build_stats, clean_sentence, percentages_ok, prompt_facts, template, words
 
 PEDESTRIAN = {
     "hour": "2026-10-01T03:00:00+00:00",  # 1pm AEST, Thursday
@@ -59,3 +59,20 @@ def test_clean_sentence():
     assert clean_sentence("word " * 26) is None
     assert clean_sentence("") is None
     assert clean_sentence("Around 2,400 people passed 99.5% of sensors!") == "Around 2,400 people passed 99.5% of sensors!"
+
+
+def test_prompt_facts_are_pre_worded():
+    facts = prompt_facts(build_stats(PEDESTRIAN, SENSORS, PARKING))
+    assert facts["compared_with_usual"] == "17% busier than usual"
+    assert facts["parking"] == "40% of parking bays are free"
+    assert facts["time"] == "the hour from 1pm on Thursday"
+
+
+def test_percentages_must_match_the_real_stats():
+    # Real case from 2026-10-01: stats said +26% and 72% free; Gemini wrote otherwise.
+    stats = {"vs_typical_pct": 26, "pct_bays_free": 72}
+    assert percentages_ok("The CBD is 26% busier than usual and 72% of bays are free.", stats)
+    assert percentages_ok("A quiet night with plenty of parking.", stats)
+    assert not percentages_ok("Melbourne has about 25% of the usual crowd, with 70% of bays free.", stats)
+    assert not percentages_ok("Foot traffic is 26 percent above typical and 70 per cent of bays are free.", stats)
+    assert percentages_ok("Crowds are 17% lighter than usual.", {"vs_typical_pct": -17})

@@ -11,3 +11,6 @@ __pycache__/
 
 # OS / editor
 .DS_Store
+
+# Model training cache (re-downloadable city data)
+model/.cache/
