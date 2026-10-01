@@ -29,7 +29,9 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.SITE_URL || "https://melbourne-pulse.vercel.app"),
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL || "https://melbourne-pulse.vercel.app"
+  ),
   title: "Melbourne Pulse · Live Pedestrian Counts & Parking Telemetry",
   description:
     "Live pedestrian activity, free on-street parking bays, and 24-hour LightGBM machine learning forecasts across Melbourne CBD. Runs on $0.",
