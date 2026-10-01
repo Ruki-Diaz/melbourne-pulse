@@ -32,7 +32,7 @@ City of Melbourne Open Data ──► GitHub Actions (hourly) ──────
   ~4am Melbourne time and writes the next 36 hours per sensor, plus the
   "typical" baseline, into `forecasts`. 36 rather than 24, so there are always
   at least 24 hours ahead to show.
-- **`web/`** (Next.js 16, App Router, Tailwind, Leaflet, Recharts). The landing
+- **`web/`** (Next.js 16, App Router, Tailwind, Leaflet + MapLibre GL, Recharts). The landing
   page, `/map` and `/about` are server components that read Neon over HTTP as
   a read-only role. Pages are cached for an hour and refreshed on demand right
   after each ingest. Leaflet loads client-side only.
@@ -113,7 +113,8 @@ call.
   stats, a template sentence is used.
 - **Vercel Hobby:** one static page per hour plus about 24 calls a day to
   `/api/revalidate`.
-- **Map tiles:** Leaflet with CARTO/OpenStreetMap, no API key.
+- **Map tiles:** [OpenFreeMap](https://openfreemap.org)'s dark style (free, no API key, no
+  account), drawn by MapLibre GL inside Leaflet via `@maplibre/maplibre-gl-leaflet`.
 
 ## Setup
 
@@ -184,7 +185,8 @@ cd ../web && cp .env.example .env.local && npm install && npm run dev
 ## Data
 
 City of Melbourne Open Data, CC BY. See [docs/data.md](docs/data.md).
-Map tiles © OpenStreetMap contributors, © CARTO.
+Basemap: [OpenFreeMap](https://openfreemap.org), © [OpenMapTiles](https://www.openmaptiles.org/),
+data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors.
 
 ## License
 

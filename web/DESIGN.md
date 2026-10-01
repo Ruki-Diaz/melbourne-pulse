@@ -70,7 +70,7 @@ Generated via **UI UX Pro Max** for **Melbourne Pulse** (Live Civic Data & Predi
 - **Sparklines:** Clean Recharts area/line charts with gradient fills, tooltip overlays, and clean badges (`+18% busier`).
 
 ### C. Map Interface (/map)
-- **CARTO Dark Matter** basemap (`dark_all`) with minimal tile saturation.
+- **OpenFreeMap dark** basemap (`tiles.openfreemap.org/styles/dark`, vector tiles via MapLibre GL in Leaflet; free, no key).
 - **Sensor Layer:** Custom SVG/Canvas markers styled dynamically by current load vs typical.
 - **Parking Layer:** Toggleable layer displaying micro-dots:
   - Green (`#10B981`): Free

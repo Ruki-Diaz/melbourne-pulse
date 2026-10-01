@@ -3,6 +3,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "maplibre-gl/dist/maplibre-gl.css";
+import { getVersion, setWorkerUrl } from "maplibre-gl";
+import { maplibreGL } from "@maplibre/maplibre-gl-leaflet";
 import { SensorDetailSheet, type SensorDetailData } from "./SensorDetailSheet";
 import { MapTopBar } from "./MapTopBar";
 import type { SeriesPoint } from "@/lib/series";
@@ -78,12 +81,23 @@ export function LiveLeafletMap({
     // Zoom control in bottom right
     L.control.zoom({ position: "bottomright" }).addTo(map);
 
-    // CARTO Dark Matter Tiles
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a> · City of Melbourne Open Data',
-      subdomains: "abcd",
-      maxZoom: 20,
+    // MapLibre looks for its worker next to its own module, which Next bundles
+    // away; serve it from public/ instead (see scripts/copy-maplibre-worker.mjs).
+    setWorkerUrl(`/maplibre/${getVersion()}/maplibre-gl-worker.mjs`);
+
+    // OpenFreeMap dark basemap (free, no API key), drawn by MapLibre GL inside
+    // Leaflet. It sits in Leaflet's tilePane, below the overlayPane that holds
+    // the sensor circles and parking dots.
+    maplibreGL({
+      style: "https://tiles.openfreemap.org/styles/dark",
+      // The plugin shows this in Leaflet's attribution bar (bottom right).
+      attributionControl: {
+        customAttribution:
+          '<a href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> ' +
+          '<a href="https://www.openmaptiles.org/" target="_blank" rel="noreferrer">&copy; OpenMapTiles</a> ' +
+          'Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> · ' +
+          "City of Melbourne Open Data",
+      },
     }).addTo(map);
 
     const sensorsLayer = L.layerGroup().addTo(map);
@@ -211,7 +225,7 @@ export function LiveLeafletMap({
       <SensorDetailSheet sensor={selectedSensor} onClose={() => setSelectedSensor(null)} />
 
       {/* Map Legend Overlay in Bottom Left */}
-      <div className="absolute bottom-6 left-4 z-[900] p-3.5 rounded-2xl bg-[#05080D]/90 border border-white/10 backdrop-blur-xl shadow-2xl text-xs text-slate-300 space-y-2 max-w-xs">
+      <div className="absolute bottom-14 sm:bottom-6 left-4 z-[900] p-3.5 rounded-2xl bg-[#05080D]/90 border border-white/10 backdrop-blur-xl shadow-2xl text-xs text-slate-300 space-y-2 max-w-xs">
         <div className="font-semibold text-white font-mono text-[11px] uppercase tracking-wider">
           Map Telemetry Layers
         </div>
