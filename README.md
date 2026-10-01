@@ -44,6 +44,8 @@ City of Melbourne Open Data ──► GitHub Actions (hourly) ──────
   starts the hourly job and GitHub's schedule is a backup that stands down when
   it isn't needed. Each run re-reads 24 hours, so a missed run heals on the next
   one. See [docs/scheduling.md](docs/scheduling.md).
+- **Maintenance:** yearly token renewal, where every setting lives, a quick
+  health check and what to do if a key leaks. See [docs/MAINTENANCE.md](docs/MAINTENANCE.md).
 
 ## Forecast results
 
