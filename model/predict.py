@@ -1,6 +1,7 @@
-"""Forecast the next 24 hours for every active sensor and write them to `forecasts`.
+"""Forecast the next 36 hours for every active sensor and write them to `forecasts`.
 
-Runs daily from GitHub Actions (~4am Melbourne). Re-running is safe: rows are
+Runs daily from GitHub Actions (~4am Melbourne). 36 hours, not 24, so the site
+always has at least 24 hours ahead even just before the next daily run. Re-running is safe: rows are
 upserted on (sensor_id, hour), and forecasts more than 2 days old are removed.
 History comes from the same city dataset the model was trained on.
 """
@@ -25,11 +26,12 @@ from pulse.timeutil import HOUR, UTC, floor_hour, hours_from, local
 HERE = Path(__file__).parent
 HISTORY_WEEKS = features.WEEKS + 2  # 8 for 'typical', plus slack for the data lag
 ACTIVE_DAYS = 14  # sensors with no data for 2 weeks are treated as retired
+HORIZON_HOURS = 36
 
 
 def targets_for(history: pd.DataFrame, now: datetime) -> pd.DataFrame:
-    """Next 24 real hours x active sensors, keyed by local date/hour for features."""
-    hours = hours_from(floor_hour(now) + HOUR, 24)
+    """Next HORIZON_HOURS real hours x active sensors, keyed by local date/hour for features."""
+    hours = hours_from(floor_hour(now) + HOUR, HORIZON_HOURS)
     recent = history["date"] >= history["date"].max() - pd.Timedelta(days=ACTIVE_DAYS - 1)
     sensors = sorted(history.loc[recent, "location_id"].unique())
     return pd.DataFrame(
