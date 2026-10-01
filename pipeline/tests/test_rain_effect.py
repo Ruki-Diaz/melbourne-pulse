@@ -186,3 +186,82 @@ def test_weather_joins_on_the_real_hour_across_a_dst_change(change_day, hours):
     assert len(table.count) == len(counts) == 24 + hours + 24
     np.testing.assert_array_equal(table.precip, [r[3].timestamp() / 3600 for r in counts])
     assert sorted(table.hour[table.day == 1]) == [h for h in range(24) if h != 2]
+
+
+class FakeDatabase:
+    """Just enough of psycopg to check save(): rows change only if the transaction block finishes."""
+
+    def __init__(self, rows, fail_after=None):
+        self.rows, self.fail_after = list(rows), fail_after
+        self.pending, self.depth, self.outside = None, 0, []
+
+    def transaction(self):
+        return self
+
+    def cursor(self):
+        return self
+
+    def __enter__(self):
+        if self.depth == 0 and self.pending is None:
+            self.pending = list(self.rows)
+        self.depth += 1
+        return self
+
+    def __exit__(self, exc_type, *_):
+        self.depth -= 1
+        if self.depth == 0:
+            if exc_type is None:
+                self.rows = self.pending  # commit
+            self.pending = None  # an exception rolls back: self.rows is untouched
+        return False
+
+    def _write(self, sql):
+        if self.pending is None:
+            self.outside.append(sql)  # a write outside any transaction would be applied at once
+            self.pending = self.rows
+        return self.pending
+
+    def execute(self, sql, params=None):
+        assert "delete from rain_effect" in sql
+        self._write(sql).clear()
+
+    def executemany(self, sql, rows):
+        assert "insert into rain_effect" in sql
+        target = self._write(sql)
+        for i, r in enumerate(rows):
+            if self.fail_after is not None and i >= self.fail_after:
+                raise ConnectionError("connection lost mid-write")
+            target.append((r["scope"], r["key"]))
+
+
+NEW_ROWS = [
+    {"scope": "overall", "key": "all", "effect": -0.2, "ci_low": -0.3, "ci_high": -0.1, "n_wet_hours": 500,
+     "reliable": True, "detail": {"method": rain_effect.METHOD}},
+    {"scope": "sensor", "key": "1", "effect": -0.1, "ci_low": -0.2, "ci_high": 0.1, "n_wet_hours": 400,
+     "reliable": False, "detail": None},
+    {"scope": "profile", "key": "cbd", "effect": None, "ci_low": None, "ci_high": None, "n_wet_hours": 500,
+     "reliable": True, "detail": [{"hour": 12, "wet": 1.0, "dry": 2.0, "n_wet_hours": 3}]},
+]
+OLD_ROWS = [("overall", "all"), ("sensor", "1"), ("sensor", "99")]
+STAMP = datetime(2026, 10, 2, tzinfo=timezone.utc)
+
+
+def test_a_failure_part_way_through_the_write_keeps_the_old_rows():
+    db = FakeDatabase(OLD_ROWS, fail_after=2)  # the old rows are already deleted when the 3rd insert fails
+    with pytest.raises(ConnectionError):
+        rain_effect.save(db, NEW_ROWS, date(2025, 10, 1), date(2026, 9, 30), STAMP)
+    assert db.rows == OLD_ROWS and db.outside == []
+
+
+def test_a_successful_write_replaces_every_row_in_one_transaction():
+    db = FakeDatabase(OLD_ROWS)
+    rain_effect.save(db, NEW_ROWS, date(2025, 10, 1), date(2026, 9, 30), STAMP)
+    assert db.rows == [("overall", "all"), ("sensor", "1"), ("profile", "cbd")]  # the retired sensor 99 is gone
+    assert db.outside == []  # the delete and every insert were inside the transaction
+
+
+def test_the_method_is_stored_with_the_overall_row():
+    r = results(reps=7)
+    assert r[("overall", "all")]["detail"] == {"method": {**rain_effect.METHOD, "bootstrap_reps": 7}}
+    assert rain_effect.METHOD["wet_mm"] == 0.2 and rain_effect.METHOD["min_wet_hours"] == 100
+    assert r[("sensor", "1")]["detail"] is None

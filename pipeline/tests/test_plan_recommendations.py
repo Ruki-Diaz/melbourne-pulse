@@ -34,15 +34,26 @@ def ms(day: date, hour: int) -> int:
     return int(local_hour_to_utc(day, hour).timestamp() * 1000)
 
 
-def plan(forecasts, weather, now: datetime, window="12h", sensor="cbd") -> dict:
-    payload = {"forecasts": forecasts, "weather": weather, "sensor": sensor,
-               "nowMs": int(now.timestamp() * 1000), "window": window}
+def run(payload: dict) -> dict:
     done = subprocess.run(
         ["node", "scripts/plan-recommend.mjs"], cwd=WEB, input=json.dumps(payload),
         capture_output=True, text=True, timeout=60,
     )
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)
+
+
+def plan(forecasts, weather, now: datetime, window="12h", sensor="cbd") -> dict:
+    return run({"forecasts": forecasts, "weather": weather, "sensor": sensor,
+                "nowMs": int(now.timestamp() * 1000), "window": window})
+
+
+def response(snapshot: dict, now: datetime, window="12h", sensor="cbd") -> dict:
+    """The whole /api/plan response for a database snapshot."""
+    return run({"snapshot": snapshot, "sensor": sensor, "nowMs": int(now.timestamp() * 1000), "window": window})
+
+
+PRESETS = ("mostTraffic", "busyButDry", "quietest")
 
 
 def span(rec: dict) -> str:
@@ -96,7 +107,8 @@ def test_busy_but_dry_puts_any_dry_block_above_a_wet_one(result):
     assert span(r["secondBest"]) == "16-18"  # 49% and 0.1 mm at 17:00 are under both thresholds
     assert span(r["avoid"]) == "11-13"  # two rain-risk hours, and the quieter of the two such blocks
     assert r["best"]["maxPrecipProb"] == 10
-    assert "dry" in r["best"]["reason"] and "likely" in r["avoid"]["reason"]
+    assert r["best"]["reason"].startswith("Busiest hours where rain isn't likely:")
+    assert r["avoid"]["reason"].startswith("Most likely to be wet:") and r["avoid"]["reason"].endswith("Rain likely (80%).")
 
 
 def test_quietest_picks_the_lowest_blocks(result):
@@ -107,7 +119,7 @@ def test_quietest_picks_the_lowest_blocks(result):
 
 
 def test_recommendations_never_overlap_and_never_say_people(result):
-    for preset in result["recommendations"].values():
+    for preset in (result["recommendations"][name] for name in PRESETS):
         blocks = [(r["start"], r["end"]) for r in preset.values()]
         for i, (start, end) in enumerate(blocks):
             for other_start, other_end in blocks[i + 1:]:
@@ -124,7 +136,7 @@ def test_rain_never_changes_the_forecast_counts(result):
         k: {**v, "maxPrecipProb": None, "reason": dry["recommendations"]["mostTraffic"][k]["reason"]}
         for k, v in result["recommendations"]["mostTraffic"].items()
     }
-    assert "No weather forecast" in dry["recommendations"]["busyButDry"]["best"]["reason"]
+    assert "No rain forecast" in dry["recommendations"]["busyButDry"]["best"]["reason"]
 
 
 def test_ties_go_to_the_earlier_block():
@@ -134,12 +146,126 @@ def test_ties_go_to_the_earlier_block():
     assert span(r["mostTraffic"]["secondBest"]) == "9-11"
 
 
-def test_cbd_sums_sensors_and_compares_like_with_like():
-    second = [{**f, "sensorId": 8, "predicted": 50, "baseline": None if i == 0 else 50} for i, f in enumerate(FORECASTS)]
-    hours = plan(FORECASTS + second, WEATHER, NOW)["hours"]
-    # 06:00: sensor 8 has no typical, so no CBD typical; the delta uses sensor 7 alone (900 vs 100).
-    assert (hours[0]["forecastCount"], hours[0]["typicalCount"], hours[0]["deltaPct"]) == (950, None, 800)
-    assert (hours[1]["forecastCount"], hours[1]["typicalCount"], hours[1]["deltaPct"]) == (150, 150, 0)
+def at(hour: int, sensor: int, predicted: float, baseline: float | None) -> dict:
+    return {"sensorId": sensor, "ms": ms(TUESDAY, hour), "predicted": predicted, "baseline": baseline}
+
+
+def test_cbd_total_uses_the_same_sensors_for_forecast_and_typical_in_every_hour():
+    forecasts = (
+        [at(h, 1, 100, 80) for h in (6, 7, 8)]
+        + [at(h, 2, 200, 150) for h in (6, 7, 8)]
+        # Sensor 3 has no typical at 07:00, sensor 4 has no forecast at 08:00: neither is used anywhere.
+        + [at(6, 3, 1000, 900), at(7, 3, 1000, None), at(8, 3, 1000, 900)]
+        + [at(6, 4, 5000, 4000), at(7, 4, 5000, 4000)]
+    )
+    out = plan(forecasts, [], NOW)
+    assert out["sensorsUsed"] == 2
+    assert [(h["forecastCount"], h["typicalCount"], h["deltaPct"]) for h in out["hours"]] == [(300, 230, 30.4)] * 3
+
+    # With every sensor complete, all four are used, in every hour.
+    whole = [f if f["baseline"] is not None else {**f, "baseline": 900} for f in forecasts] + [at(8, 4, 5000, 4000)]
+    out = plan(whole, [], NOW)
+    assert out["sensorsUsed"] == 4
+    assert [(h["forecastCount"], h["typicalCount"]) for h in out["hours"]] == [(6300, 5130)] * 3
+
+
+def test_a_leftover_hour_from_an_old_run_does_not_shrink_the_cbd_total():
+    forecasts = [at(h, s, 100, 100) for h in (6, 7, 8) for s in (1, 2, 3, 4)] + [at(9, 1, 100, 100)]
+    out = plan(forecasts, [], NOW)
+    assert out["sensorsUsed"] == 4
+    assert [h["hourLocal"][11:13] for h in out["hours"]] == ["06", "07", "08"]  # 09:00 has 1 of 4 sensors
+
+
+def test_one_sensor_reports_itself_and_keeps_hours_without_a_typical():
+    out = plan([at(6, 7, 40, None), at(7, 7, 50, 40), at(7, 8, 999, 999)], [], NOW, sensor=7)
+    assert out["sensorsUsed"] == 1
+    assert [(h["forecastCount"], h["typicalCount"], h["deltaPct"]) for h in out["hours"]] == [(40, None, None), (50, 40, 25)]
+    assert plan([], [], NOW)["sensorsUsed"] == 0
+
+
+def snapshot(**overrides) -> dict:
+    base = {
+        "readAt": "2026-10-05T18:10:00.000Z",
+        "forecasts": FORECASTS,
+        "weather": WEATHER,
+        "sensors": [{"location_id": 7, "name": "Town Hall (West)", "lat": -37.81, "lon": 144.96}],
+        "rain": [
+            {"scope": "overall", "key": "all", "effect": -0.185, "ciLow": -0.218, "ciHigh": -0.144,
+             "nWetHours": 876, "reliable": True},
+            {"scope": "sensor", "key": "7", "effect": -0.05, "ciLow": -0.12, "ciHigh": 0.02,
+             "nWetHours": 876, "reliable": False},
+        ],
+        "rainProfile": [],
+        "rainMethod": None,
+        "rainWindow": {"start": "2025-09-30", "end": "2026-09-29"},
+        "latestWrite": {
+            "forecasts": "2026-10-04T17:44:00.000Z",
+            "weather": "2026-10-05T18:07:00.000Z",
+            "rainEffect": "2026-10-01T17:13:00.000Z",
+        },
+    }
+    return {**base, **overrides}
+
+
+def test_data_freshness_is_each_tables_latest_write_and_the_snapshot_time():
+    out = response(snapshot(), NOW)
+    assert out["dataFreshness"] == {
+        "forecastGeneratedAt": "2026-10-04T17:44:00.000Z",
+        "weatherFetchedAt": "2026-10-05T18:07:00.000Z",
+        "rainEffectComputedAt": "2026-10-01T17:13:00.000Z",
+        "snapshotAt": "2026-10-05T18:10:00.000Z",
+    }
+    assert out["sensor"] == "cbd" and out["sensorsUsed"] == 1 and out["generatedAt"] == "2026-10-05T18:30:00.000Z"
+
+    # A later write to a table shows up, even when the rows for these hours are identical.
+    newer = snapshot(readAt="2026-10-05T19:10:00.000Z",
+                     latestWrite={"forecasts": None, "weather": "2026-10-05T19:07:00.000Z", "rainEffect": None})
+    again = response(newer, NOW)
+    assert again["dataFreshness"]["weatherFetchedAt"] == "2026-10-05T19:07:00.000Z"
+    assert again["dataFreshness"]["forecastGeneratedAt"] is None
+    assert again["dataFreshness"]["snapshotAt"] == "2026-10-05T19:10:00.000Z"
+
+
+def test_the_same_snapshot_always_gives_the_same_hours():
+    first = response(snapshot(), NOW, window="36h")
+    later = response(snapshot(), datetime(2026, 10, 5, 18, 55, tzinfo=timezone.utc), window="36h")  # same hour, later
+    assert first["hours"] == later["hours"] and first["recommendations"] == later["recommendations"]
+    assert first["dataFreshness"] == later["dataFreshness"]
+    # An hour later the window has moved on by one hour; every hour both responses share is identical.
+    next_hour = response(snapshot(), datetime(2026, 10, 5, 19, 5, tzinfo=timezone.utc), window="36h")
+    assert next_hour["hours"] == first["hours"][1:]
+
+
+def test_a_sensor_without_a_reliable_rain_effect_falls_back_to_the_cbd_one():
+    out = response(snapshot(), NOW, sensor=7)
+    assert out["sensor"]["name"] == "Town Hall (West)"
+    assert out["rainEffect"] == {"value": -18.5, "ciLow": -21.8, "ciHigh": -14.4, "nWetHours": 876,
+                                 "reliable": True, "usedFallback": True, "scope": "cbd"}
+    assert response(snapshot(), NOW, sensor=999) is None  # no forecast for that id
+
+
+@pytest.mark.parametrize(
+    "chance, wording",
+    [(0, "Low rain risk (0%)"), (29, "Low rain risk (29%)"), (30, "Some rain risk (30%)"),
+     (49, "Some rain risk (49%)"), (50, "Rain likely (50%)"), (88, "Rain likely (88%)")],
+)
+def test_rain_wording_follows_the_highest_chance_and_always_shows_it(chance, wording):
+    weather = [{**w, "precipProb": chance, "precipMm": 0.0} for w in WEATHER]
+    recs = plan(FORECASTS, weather, NOW, sensor=7)["recommendations"]
+    for preset in PRESETS:
+        for rec in recs[preset].values():
+            assert rec["reason"].endswith(f". {wording}.") and "unlikely" not in rec["reason"].lower()
+            assert rec["maxPrecipProb"] == chance
+
+
+def test_hours_considered_is_the_real_range_the_blocks_came_from(result):
+    # 06:00-17:00 was forecast, but blocks are only offered inside 7am-10pm.
+    assert result["recommendations"]["hoursConsidered"] == {
+        "from": "2026-10-06T07:00:00+11:00", "to": "2026-10-06T18:00:00+11:00", "daytimeOnly": True}
+    starts = [r["start"] for name in PRESETS for r in result["recommendations"][name].values()]
+    ends = [r["end"] for name in PRESETS for r in result["recommendations"][name].values()]
+    assert min(starts) >= "2026-10-06T07:00:00+11:00" and max(ends) <= "2026-10-06T18:00:00+11:00"
+    assert plan([], [], NOW)["recommendations"]["hoursConsidered"] is None
 
 
 def test_late_evening_falls_back_to_the_hours_there_are():
@@ -149,6 +275,8 @@ def test_late_evening_falls_back_to_the_hours_there_are():
     assert [h["hourLocal"][11:13] for h in today["hours"]] == ["22", "23"]
     r = today["recommendations"]["quietest"]
     assert span(r["best"]) == "22-24" and r["secondBest"] is None and r["avoid"] is None
+    assert today["recommendations"]["hoursConsidered"] == {
+        "from": "2026-10-06T22:00:00+11:00", "to": "2026-10-07T00:00:00+11:00", "daytimeOnly": False}
 
     after_eleven = datetime(2026, 10, 6, 12, 30, tzinfo=timezone.utc)  # 23:30: nothing left of today
     empty = plan(forecasts, [], after_eleven, window="today", sensor=7)

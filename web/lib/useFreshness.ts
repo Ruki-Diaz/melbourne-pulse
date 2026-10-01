@@ -43,3 +43,15 @@ export function useFreshness(updatedAt: string | null, renderedAt: string): Fres
   );
   return getFreshness(updatedAt, now);
 }
+
+/**
+ * Returns the current client timestamp in ms, safely synchronized via useSyncExternalStore.
+ */
+export function useNow(fallbackMs: number = 0): number {
+  return useSyncExternalStore(
+    subscribe,
+    () => current,
+    () => fallbackMs
+  );
+}
+

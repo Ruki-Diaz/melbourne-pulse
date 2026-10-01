@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Map, Info, Menu, X } from "lucide-react";
+import { Activity, Map, CalendarClock, Info, Menu, X } from "lucide-react";
 import { GithubIcon } from "@/components/icons";
 
 export function Navbar() {
@@ -13,6 +13,7 @@ export function Navbar() {
   const navLinks = [
     { href: "/", label: "Home", icon: Activity },
     { href: "/map", label: "Live Map", icon: Map },
+    { href: "/plan", label: "Plan", icon: CalendarClock },
     { href: "/about", label: "About", icon: Info },
   ];
 
