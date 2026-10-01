@@ -41,11 +41,11 @@ the test period. The model never saw these weeks during training. This week incl
   2024-10-08 to 2026-06-09. The next 8 weeks
   (2026-06-10 to 2026-08-04) were used to pick
   settings, and the final 8 weeks were used **once** for the scores above.
-- **No peeking at the future.** The site forecasts up to 24 hours ahead, so
-  the model may only use information that exists 24 hours before the hour it
-  predicts. Every history-based input looks back at least a full week, for
-  example "same hour last week". An automated test deletes the most recent 7
-  days of data and checks that no input changes.
+- **No peeking at the future.** The site shows forecasts up to 36 hours
+  ahead, so the model may only use information that exists well before the
+  hour it predicts. Every history-based input looks back at least a full week,
+  for example "same hour last week". An automated test deletes the most recent
+  7 days of data and checks that no input changes.
 - **Same questions for everyone.** All three methods were scored on the same
   132,696 sensor-hours, the ones where every method
   could make a prediction.

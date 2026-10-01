@@ -29,8 +29,9 @@ City of Melbourne Open Data ──► GitHub Actions (hourly) ──────
   than usual" works from day one.
 - **`model/`** (Python, LightGBM). `train.py` learns from two years of hourly
   counts and writes [REPORT.md](model/REPORT.md). `predict.py` runs daily at
-  ~4am Melbourne time and writes the next 24 hours per sensor, plus the
-  "typical" baseline, into `forecasts`.
+  ~4am Melbourne time and writes the next 36 hours per sensor, plus the
+  "typical" baseline, into `forecasts`. 36 rather than 24, so there are always
+  at least 24 hours ahead to show.
 - **`web/`** (Next.js 16, App Router, Tailwind, Leaflet, Recharts). The landing
   page, `/map` and `/about` are server components that read Neon over HTTP as
   a read-only role. Pages are cached for an hour and refreshed on demand right
@@ -74,7 +75,7 @@ measured **20 MB** (3.9% of 0.5 GB).
 | `pedestrian_hourly` | Measured: 126,454 rows (8-week seed) = 14.4 MB with indexes, so **114 B/row**. 99 live sensors × 24 h × 90 days = 213,840 rows → 24 MB. If all 134 sensors report: 289,440 rows → 33 MB. | 24–33 MB |
 | `parking_hourly` | 24 × 90 = 2,160 rows × ~100 B | 0.2 MB |
 | `latest` | 4 rows. The 6,324-bay parking payload is 575 kB of JSON but 100 kB once Postgres compresses it. Measured 216 kB after vacuum. | 0.2 MB |
-| `forecasts` | 99 sensors × 24 h, replaced daily | 0.3 MB |
+| `forecasts` | 99 sensors × 36 h, plus 2 days kept | 0.5 MB |
 | Postgres system catalogs | Measured size of an empty database | ~7.3 MB |
 | **Total** | | **32–41 MB** |
 

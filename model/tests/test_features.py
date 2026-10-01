@@ -83,15 +83,17 @@ def test_holiday_flags():
     assert school["school_holiday"].tolist() == [True, False]
 
 
-def test_targets_are_next_24_real_hours_across_spring_forward():
+def test_targets_are_next_36_real_hours_across_spring_forward():
     hist = synthetic_history(last=date(2026, 10, 3))
     now = datetime(2026, 10, 3, 3, 37, tzinfo=timezone.utc)  # Sat 13:37 AEST
     t = targets_for(hist, now)
     one = t[t["location_id"] == 1]
-    assert len(one) == 24 and one["ts"].is_unique
+    assert len(one) == 36 and one["ts"].is_unique
+    assert one["ts"].diff().dropna().eq(pd.Timedelta(hours=1)).all()
     assert one["ts"].iloc[0] == datetime(2026, 10, 3, 4, tzinfo=timezone.utc)
-    local_hours = [local(ts).hour for ts in one["ts"]]
-    assert 2 not in local_hours  # 02:00 on Sun 4 Oct doesn't exist
+    local_times = [local(ts) for ts in one["ts"]]
+    assert not any(t.date() == date(2026, 10, 4) and t.hour == 2 for t in local_times)  # doesn't exist
+    assert sum(t.date() == date(2026, 10, 4) for t in local_times) == 23  # the short day
 
 
 def test_retired_sensors_are_not_forecast():
