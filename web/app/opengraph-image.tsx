@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { getAllLatest } from "@/lib/db";
+import { getFreshness } from "@/lib/freshness";
 
 export const runtime = "nodejs";
 export const revalidate = 3600;
@@ -11,14 +12,24 @@ export const size = {
 };
 export const contentType = "image/png";
 
+// Rendered at most hourly (and re-warmed by the hourly Action), so the badge is
+// accurate to within the hour. Same freshness rule as the pages.
+const BADGE = {
+  live: { color: "#00E5C7", background: "rgba(0, 229, 199, 0.1)", border: "rgba(0, 229, 199, 0.3)" },
+  stale: { color: "#FBBF24", background: "rgba(245, 158, 11, 0.12)", border: "rgba(245, 158, 11, 0.45)" },
+  empty: { color: "#CBD5E1", background: "rgba(100, 116, 139, 0.15)", border: "rgba(100, 116, 139, 0.4)" },
+} as const;
+
 export default async function Image() {
-  let totalPedestrians = 44000;
-  let pctParking = 54;
+  let totalPedestrians: number | null = null;
+  let pctParking: number | null = null;
+  let updatedAt: Date | null = null;
   let summaryText = "Live pedestrian counts and free parking bays across Melbourne CBD.";
 
   try {
     const data = await getAllLatest();
-    if (data.pedestrian?.payload?.sensors) {
+    updatedAt = data.pedestrian?.updatedAt ?? null;
+    if (data.pedestrian?.payload?.sensors?.length) {
       totalPedestrians = data.pedestrian.payload.sensors.reduce(
         (acc, s) => acc + (s.count || 0),
         0
@@ -37,6 +48,10 @@ export default async function Image() {
   } catch (e) {
     console.error("OpenGraph image query fallback:", e);
   }
+  const freshness = getFreshness(updatedAt);
+  const badge = BADGE[freshness.state];
+  const badgeText =
+    freshness.state === "live" ? "● LIVE" : freshness.state === "stale" ? `◷ ${freshness.label.toUpperCase()}` : "WAITING FOR THE NEXT UPDATE";
 
   return new ImageResponse(
     (
@@ -86,15 +101,15 @@ export default async function Image() {
               gap: "8px",
               padding: "8px 20px",
               borderRadius: "999px",
-              backgroundColor: "rgba(0, 229, 199, 0.1)",
-              border: "1px solid rgba(0, 229, 199, 0.3)",
-              color: "#00E5C7",
+              backgroundColor: badge.background,
+              border: `1px solid ${badge.border}`,
+              color: badge.color,
               fontSize: "16px",
               fontFamily: "monospace",
               fontWeight: 600,
             }}
           >
-            ● LIVE TELEMETRY
+            {badgeText}
           </div>
         </div>
 
@@ -146,9 +161,11 @@ export default async function Image() {
               CBD Walking Traffic
             </span>
             <span style={{ fontSize: "38px", fontWeight: 800, color: "#00E5C7", fontFamily: "monospace" }}>
-              {totalPedestrians.toLocaleString()}
+              {totalPedestrians === null ? "—" : totalPedestrians.toLocaleString()}
             </span>
-            <span style={{ fontSize: "12px", color: "#64748B" }}>people this hour</span>
+            <span style={{ fontSize: "12px", color: "#64748B" }}>
+              {totalPedestrians === null ? "waiting for data" : "people in the latest hour"}
+            </span>
           </div>
 
           <div
@@ -166,9 +183,11 @@ export default async function Image() {
               Street Parking Free
             </span>
             <span style={{ fontSize: "38px", fontWeight: 800, color: "#10B981", fontFamily: "monospace" }}>
-              {pctParking}%
+              {pctParking === null ? "—" : `${pctParking}%`}
             </span>
-            <span style={{ fontSize: "12px", color: "#64748B" }}>live in-ground bays</span>
+            <span style={{ fontSize: "12px", color: "#64748B" }}>
+              {pctParking === null ? "waiting for data" : "bays reporting in the last 24 h"}
+            </span>
           </div>
 
           <div

@@ -18,20 +18,25 @@ export type Summary = {
   text: string;
   source: "gemini" | "template";
   hour: string | null;
+  /** Field names exactly as pipeline/summary.py writes them. */
   stats?: {
-    day?: string;
     hour?: string;
+    day?: string;
+    hour_label?: string;
+    pedestrians?: number;
+    sensors?: number;
+    vs_typical_pct?: number | null;
     busiest?: Array<{ name: string; count: number }>;
-    pct_free?: number;
-    total_pedestrians?: number;
-    delta_pct?: number;
+    pct_bays_free?: number;
+    bays_reporting?: number;
   };
 };
 
 export type PedestrianSensorLatest = {
   location_id: number;
   count: number;
-  typical: number;
+  /** null until the sensor has an 8-week baseline. */
+  typical: number | null;
 };
 
 export type PedestrianLatestPayload = {

@@ -5,6 +5,8 @@ import {
   getRecentPedestrianHistory,
   type SensorMeta,
 } from "@/lib/db";
+import { buildTime } from "@/lib/freshness";
+import { buildSeriesBySensor, floorHour, HOUR_MS } from "@/lib/series";
 import { HeroWrapper } from "@/components/landing/HeroWrapper";
 import { StatStrip } from "@/components/landing/StatStrip";
 import { CityRightNowMap, type SensorPoint } from "@/components/landing/CityRightNowMap";
@@ -22,176 +24,112 @@ import { BuiltBySection } from "@/components/landing/BuiltBySection";
 // Cached for 1 hour; revalidated on-demand by /api/revalidate after hourly ingest.
 export const revalidate = 3600;
 
-function calculateMinutesAgo(date: Date | string | undefined | null): number {
-  if (!date) return 5;
-  const target = new Date(date).getTime();
-  const current = new Date().getTime();
-  return Math.max(1, Math.round((current - target) / 60000));
-}
-
+// Every number on this page comes from the database. When something is
+// missing the components show "Waiting for the next update", never a guess.
 export default async function HomePage() {
-  // Fetch all live database records concurrently
   const [latestData, forecasts, history] = await Promise.all([
     getAllLatest(),
     getForecasts(),
     getRecentPedestrianHistory(18),
   ]);
-
   const { pedestrian, parking, sensors: sensorMetaList, summary } = latestData;
 
-  // 1. Calculate time delta for Hero eyebrow
-  const latestTimestamp = pedestrian?.updatedAt ?? summary?.updatedAt;
-  const minutesAgo = calculateMinutesAgo(latestTimestamp);
-  const eyebrowText = `Live · updated ${minutesAgo} min ago`;
+  const { now, renderedAt } = buildTime();
+  const updatedAt = pedestrian?.updatedAt.toISOString() ?? null;
 
-  // 2. Compute Stat Strip metrics
   const sensorLookup = new Map<number, SensorMeta>();
-  if (sensorMetaList?.payload) {
-    sensorMetaList.payload.forEach((s) => sensorLookup.set(s.location_id, s));
-  }
+  sensorMetaList?.payload?.forEach((s) => sensorLookup.set(s.location_id, s));
 
+  // 1. Stat strip
   const liveSensors = pedestrian?.payload?.sensors ?? [];
-  const totalPedestrians =
-    liveSensors.reduce((acc, s) => acc + (s.count || 0), 0) ||
-    (summary?.payload?.stats?.total_pedestrians ?? 44000);
+  const totalPedestrians = liveSensors.length ? liveSensors.reduce((acc, s) => acc + (s.count || 0), 0) : null;
 
-  // Parking % free (non-stale bays only)
-  let pctParkingFree = summary?.payload?.stats?.pct_free
-    ? Math.round(summary.payload.stats.pct_free * 100)
-    : 54;
-  if (parking?.payload && Array.isArray(parking.payload)) {
-    const nonStale = parking.payload.filter((p) => !p.stale);
-    if (nonStale.length > 0) {
-      const freeCount = nonStale.filter((p) => p.free).length;
-      pctParkingFree = Math.round((freeCount / nonStale.length) * 100);
+  let pctParkingFree: number | null = null;
+  if (Array.isArray(parking?.payload)) {
+    const reporting = parking.payload.filter((p) => !p.stale);
+    if (reporting.length > 0) {
+      pctParkingFree = Math.round((reporting.filter((p) => p.free).length / reporting.length) * 100);
     }
   }
 
-  // Busiest spot
   let busiestSpot: { name: string; count: number } | null = null;
   if (liveSensors.length > 0) {
-    const sorted = [...liveSensors].sort((a, b) => (b.count || 0) - (a.count || 0));
-    const top = sorted[0];
-    const meta = sensorLookup.get(top.location_id);
-    busiestSpot = {
-      name: meta ? meta.name : `Sensor #${top.location_id}`,
-      count: top.count,
-    };
-  } else if (summary?.payload?.stats?.busiest?.[0]) {
-    busiestSpot = summary.payload.stats.busiest[0];
+    const top = [...liveSensors].sort((a, b) => (b.count || 0) - (a.count || 0))[0];
+    busiestSpot = { name: sensorLookup.get(top.location_id)?.name ?? `Sensor #${top.location_id}`, count: top.count };
   }
 
-  // 3. Map real sensor points for SVG visualization
+  // 2. Sensor points for the SVG map
   const citySensors: SensorPoint[] = liveSensors
     .map((s) => {
       const meta = sensorLookup.get(s.location_id);
       if (!meta) return null;
-      return {
-        location_id: s.location_id,
-        name: meta.name,
-        lat: meta.lat,
-        lon: meta.lon,
-        count: s.count,
-        typical: s.typical || 1,
-      };
+      return { location_id: s.location_id, name: meta.name, lat: meta.lat, lon: meta.lon, count: s.count, typical: s.typical };
     })
     .filter((s): s is SensorPoint => s !== null);
 
-  // 4. Sparklines for 6 busiest sensors
-  const historyBySensor = new Map<number, Array<{ hour: string; actual: number }>>();
-  history.forEach((h) => {
-    const list = historyBySensor.get(h.location_id) || [];
-    const dateObj = new Date(h.hour);
-    const hourLabel = dateObj.toLocaleTimeString("en-AU", {
-      hour: "numeric",
-      hour12: true,
-      timeZone: "Australia/Melbourne",
-    });
-    list.push({ hour: hourLabel, actual: h.count });
-    historyBySensor.set(h.location_id, list);
-  });
-
-  const sortedForSparklines = [...citySensors].sort((a, b) => b.count - a.count).slice(0, 6);
-  const sparklineCards: SensorSparklineData[] = sortedForSparklines.map((s) => {
-    const sensorHistory = historyBySensor.get(s.location_id) || [];
-    const pctDelta = s.typical > 0 ? ((s.count - s.typical) / s.typical) * 100 : 0;
-
-    // Generate or format sparkline series
-    const sparkline =
-      sensorHistory.length >= 4
-        ? sensorHistory.slice(-8).map((pt) => ({
-            hour: pt.hour,
-            actual: pt.actual,
-            typical: Math.round(s.typical),
-          }))
-        : [
-            { hour: "3h ago", actual: Math.round(s.count * 0.75), typical: Math.round(s.typical * 0.8) },
-            { hour: "2h ago", actual: Math.round(s.count * 0.9), typical: Math.round(s.typical * 0.9) },
-            { hour: "1h ago", actual: Math.round(s.count * 0.95), typical: Math.round(s.typical) },
-            { hour: "Now", actual: s.count, typical: s.typical },
-          ];
-
-    return {
+  // 3. Sparklines for the 6 busiest sensors: the last 8 complete hours, each
+  //    with that hour's own stored baseline.
+  const recent = buildSeriesBySensor(history, forecasts, floorHour(now) - 8 * HOUR_MS, floorHour(now));
+  const sparklineCards: SensorSparklineData[] = [...citySensors]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6)
+    .map((s) => ({
       location_id: s.location_id,
       name: s.name,
       count: s.count,
       typical: s.typical,
-      pctDelta,
-      sparkline,
-    };
-  });
+      pctDelta: s.typical && s.typical > 0 ? ((s.count - s.typical) / s.typical) * 100 : null,
+      sparkline: (recent[s.location_id] ?? [])
+        .filter((p) => p.actual !== null)
+        .map((p) => ({ hour: p.hourLabel.split(" ")[1], actual: p.actual as number, typical: p.typical })),
+    }));
 
-  // 5. Aggregate 24h CBD forecast
-  const forecastByHour = new Map<string, { predicted: number; typical: number; count: number }>();
-  forecasts.forEach((f) => {
-    const hourKey = f.hour;
-    const current = forecastByHour.get(hourKey) || { predicted: 0, typical: 0, count: 0 };
-    current.predicted += f.predicted_count;
-    current.typical += f.baseline_count ?? f.predicted_count * 0.95;
-    current.count += 1;
-    forecastByHour.set(hourKey, current);
-  });
+  // 4. CBD-wide forecast for the next 24 hours
+  const firstHour = floorHour(now) + HOUR_MS;
+  const byHour = new Map<number, { predicted: number; typical: number; rows: number; baselines: number }>();
+  for (const f of forecasts) {
+    const t = Date.parse(f.hour);
+    if (t < firstHour || t >= firstHour + 24 * HOUR_MS) continue;
+    const agg = byHour.get(t) ?? { predicted: 0, typical: 0, rows: 0, baselines: 0 };
+    agg.predicted += f.predicted_count;
+    agg.rows += 1;
+    if (f.baseline_count != null) {
+      agg.typical += f.baseline_count;
+      agg.baselines += 1;
+    }
+    byHour.set(t, agg);
+  }
+  const cbdForecastData: CBDHourlyForecastPoint[] = [...byHour.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([t, v]) => ({
+      hourLabel: new Date(t)
+        .toLocaleTimeString("en-AU", { hour: "numeric", hour12: true, timeZone: "Australia/Melbourne" })
+        .replace(/\s/g, "")
+        .toLowerCase(),
+      hourIso: new Date(t).toISOString(),
+      predicted: Math.round(v.predicted),
+      // Only sum the baseline if every sensor in that hour has one.
+      typical: v.baselines === v.rows ? Math.round(v.typical) : null,
+    }));
 
-  const cbdForecastData: CBDHourlyForecastPoint[] = Array.from(forecastByHour.entries())
-    .sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime())
-    .slice(0, 24)
-    .map(([hourIso, val]) => {
-      const d = new Date(hourIso);
-      const hourLabel = d.toLocaleTimeString("en-AU", {
-        hour: "numeric",
-        hour12: true,
-        timeZone: "Australia/Melbourne",
-      });
-      return {
-        hourLabel,
-        hourIso,
-        predicted: Math.round(val.predicted),
-        typical: Math.round(val.typical),
-      };
-    });
-
-  // Plain English peak computation
-  let forecastCallout = "";
+  let forecastCallout: string | undefined;
   if (cbdForecastData.length > 0) {
-    let maxItem = cbdForecastData[0];
-    cbdForecastData.forEach((item) => {
-      if (item.predicted > maxItem.predicted) maxItem = item;
-    });
-    const peakDate = new Date(maxItem.hourIso);
-    const dayName = peakDate.toLocaleDateString("en-AU", {
-      weekday: "long",
-      timeZone: "Australia/Melbourne",
-    });
-    const deltaPeak = maxItem.typical > 0 ? ((maxItem.predicted - maxItem.typical) / maxItem.typical) * 100 : 0;
-    const sign = deltaPeak >= 0 ? "+" : "";
-    forecastCallout = `Predicted peak at ${maxItem.hourLabel} on ${dayName}, ${sign}${deltaPeak.toFixed(0)}% relative to the 8-week baseline.`;
+    const peak = cbdForecastData.reduce((max, p) => (p.predicted > max.predicted ? p : max));
+    const day = new Date(peak.hourIso).toLocaleDateString("en-AU", { weekday: "long", timeZone: "Australia/Melbourne" });
+    forecastCallout = `Predicted peak at ${peak.hourLabel} on ${day}`;
+    if (peak.typical) {
+      const delta = ((peak.predicted - peak.typical) / peak.typical) * 100;
+      forecastCallout += `, ${delta >= 0 ? "+" : ""}${delta.toFixed(0)}% relative to the 8-week baseline`;
+    }
+    forecastCallout += ".";
   }
 
   return (
     <div className="flex flex-col min-h-screen bg-[#05080D] text-slate-100 selection:bg-teal-500/30 selection:text-teal-200">
       {/* 1. WebGL2 Glass Headline Hero */}
       <HeroWrapper
-        eyebrow={eyebrowText}
+        updatedAt={updatedAt}
+        renderedAt={renderedAt}
         title="Melbourne, live."
         description={
           summary?.payload?.text ||
@@ -207,6 +145,9 @@ export default async function HomePage() {
         totalPedestrians={totalPedestrians}
         pctParkingFree={pctParkingFree}
         busiestSpot={busiestSpot}
+        hourIso={pedestrian?.payload?.hour ?? null}
+        updatedAt={updatedAt}
+        renderedAt={renderedAt}
       />
 
       {/* 3. The City Right Now (SVG Real Coordinates) */}
@@ -215,7 +156,7 @@ export default async function HomePage() {
       {/* 4. Right Now vs Usual (6 Recharts Sparklines) */}
       <BusiestSensorsSparklines sensors={sparklineCards} />
 
-      {/* 5. Tomorrow, Predicted (24h CBD Forecast) */}
+      {/* 5. The next 24 hours, predicted (CBD-wide) */}
       <CBDTomorrowForecast data={cbdForecastData} calloutText={forecastCallout} />
 
       {/* 6. How it works (#how) */}

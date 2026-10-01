@@ -6,7 +6,8 @@ import { ArrowRight } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 
 export interface GlassHeadlineHeroProps {
-  eyebrow?: string;
+  /** Shown above the title, e.g. a <FreshnessBadge />. */
+  badge?: React.ReactNode;
   title?: string;
   description?: string;
   primaryAction?: { label: string; href: string };
@@ -16,7 +17,7 @@ export interface GlassHeadlineHeroProps {
 }
 
 export function GlassHeadlineHero({
-  eyebrow = "Live · updated 5 min ago",
+  badge,
   title = "Melbourne, live.",
   description = "See how busy the CBD is right now, and what the next 24 hours look like.",
   primaryAction = { label: "Open the live map", href: "/map" },
@@ -226,18 +227,14 @@ export function GlassHeadlineHero({
       {/* Content Container */}
       <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 text-center flex flex-col items-center pt-8 pb-16">
         {/* Eyebrow badge */}
-        {eyebrow && (
+        {badge && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-teal-950/60 border border-teal-500/30 text-teal-300 text-xs sm:text-sm font-medium tracking-wide mb-6 backdrop-blur-md shadow-[0_0_20px_rgba(0,229,199,0.15)]"
+            className="mb-6"
           >
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-teal-400"></span>
-            </span>
-            <span>{eyebrow}</span>
+            {badge}
           </motion.div>
         )}
 

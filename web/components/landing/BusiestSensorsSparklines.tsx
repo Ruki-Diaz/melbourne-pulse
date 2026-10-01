@@ -9,12 +9,14 @@ export interface SensorSparklineData {
   location_id: number;
   name: string;
   count: number;
-  typical: number;
-  pctDelta: number;
+  /** null = no 8-week baseline for this sensor yet. */
+  typical: number | null;
+  pctDelta: number | null;
+  /** Real complete hours only; typical comes from that hour's stored baseline. */
   sparkline: Array<{
     hour: string;
     actual: number;
-    typical: number;
+    typical: number | null;
   }>;
 }
 
@@ -45,11 +47,11 @@ export function BusiestSensorsSparklines({ sensors }: BusiestSensorsSparklinesPr
       {/* Grid of 6 Sparkline Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {sensors.slice(0, 6).map((sensor, idx) => {
-          const isBusier = sensor.pctDelta >= 0;
-          const deltaSign = isBusier ? "+" : "";
-          const badgeText = `${deltaSign}${sensor.pctDelta.toFixed(0)}% ${
-            isBusier ? "busier" : "quieter"
-          }`;
+          const hasDelta = sensor.pctDelta !== null;
+          const isBusier = hasDelta && (sensor.pctDelta as number) >= 0;
+          const badgeText = hasDelta
+            ? `${isBusier ? "+" : ""}${(sensor.pctDelta as number).toFixed(0)}% ${isBusier ? "busier" : "quieter"}`
+            : "No baseline yet";
 
           return (
             <motion.div
@@ -68,16 +70,15 @@ export function BusiestSensorsSparklines({ sensors }: BusiestSensorsSparklinesPr
                   </h3>
                   <span
                     className={`inline-flex items-center gap-1 text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full shrink-0 ${
-                      isBusier
+                      !hasDelta
+                        ? "bg-slate-500/10 text-slate-300 border border-slate-500/30"
+                        : isBusier
                         ? "bg-teal-500/10 text-teal-300 border border-teal-500/30"
                         : "bg-blue-500/10 text-blue-300 border border-blue-500/30"
                     }`}
                   >
-                    {isBusier ? (
-                      <TrendingUp className="w-3 h-3" />
-                    ) : (
-                      <TrendingDown className="w-3 h-3" />
-                    )}
+                    {hasDelta &&
+                      (isBusier ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />)}
                     {badgeText}
                   </span>
                 </div>
@@ -87,13 +88,18 @@ export function BusiestSensorsSparklines({ sensors }: BusiestSensorsSparklinesPr
                     {sensor.count.toLocaleString()}
                   </span>
                   <span className="text-xs text-slate-400">
-                    /hr (typical: {sensor.typical.toLocaleString()})
+                    /hr (typical: {sensor.typical === null ? "n/a" : sensor.typical.toLocaleString()})
                   </span>
                 </div>
               </div>
 
               {/* Recharts Sparkline */}
               <div className="h-28 w-full mt-2">
+                {sensor.sparkline.length < 2 ? (
+                  <div className="h-full flex items-center justify-center text-xs text-slate-500">
+                    Not enough history yet
+                  </div>
+                ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={sensor.sparkline} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
                     <defs>
@@ -123,11 +129,13 @@ export function BusiestSensorsSparklines({ sensors }: BusiestSensorsSparklinesPr
                               <p className="font-semibold text-slate-200 mb-1">{label}</p>
                               <div className="flex items-center gap-2 text-teal-300">
                                 <span className="w-2 h-2 rounded-full bg-teal-400" />
-                                <span>Actual: {payload[0]?.value?.toLocaleString()}</span>
+                                <span>Actual: {payload.find((p) => p.dataKey === "actual")?.value?.toLocaleString()}</span>
                               </div>
                               <div className="flex items-center gap-2 text-blue-300">
                                 <span className="w-2 h-2 rounded-full bg-blue-400" />
-                                <span>Typical: {payload[1]?.value?.toLocaleString()}</span>
+                                <span>
+                                  Typical: {payload.find((p) => p.dataKey === "typical")?.value?.toLocaleString() ?? "n/a"}
+                                </span>
                               </div>
                             </div>
                           );
@@ -144,6 +152,7 @@ export function BusiestSensorsSparklines({ sensors }: BusiestSensorsSparklinesPr
                       fillOpacity={1}
                       fill={`url(#grad-typical-${sensor.location_id})`}
                       name="Typical"
+                      connectNulls={false}
                     />
                     <Area
                       type="monotone"
@@ -156,6 +165,7 @@ export function BusiestSensorsSparklines({ sensors }: BusiestSensorsSparklinesPr
                     />
                   </AreaChart>
                 </ResponsiveContainer>
+                )}
               </div>
 
               {/* Sparkline Legend */}

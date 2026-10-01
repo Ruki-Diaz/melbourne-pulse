@@ -1,5 +1,7 @@
 import React from "react";
 import { getAllLatest, getForecasts, getRecentPedestrianHistory, type SensorMeta } from "@/lib/db";
+import { buildTime } from "@/lib/freshness";
+import { buildSeriesBySensor, floorHour, HOUR_MS } from "@/lib/series";
 import { MapWrapper } from "@/components/map/MapWrapper";
 import type { MapSensorItem, MapParkingItem } from "@/components/map/LiveLeafletMap";
 
@@ -10,34 +12,19 @@ export const metadata = {
   description: "Real-time interactive map of pedestrian congestion and on-street parking bays across Melbourne CBD.",
 };
 
-function getMinutesAgo(date: Date | string | undefined | null): number {
-  if (!date) return 5;
-  const target = new Date(date).getTime();
-  const current = new Date().getTime();
-  return Math.max(1, Math.round((current - target) / 60000));
-}
-
 export default async function MapPage() {
   const [latestData, forecasts, history] = await Promise.all([
     getAllLatest(),
     getForecasts(),
     getRecentPedestrianHistory(24),
   ]);
-
   const { pedestrian, parking, sensors: sensorMetaList, summary } = latestData;
 
-  // Calculate staleness
-  const latestTimestamp = pedestrian?.updatedAt ?? summary?.updatedAt;
-  const updatedMinutesAgo = getMinutesAgo(latestTimestamp);
-  const isStale = updatedMinutesAgo > 180; // Amber warning if older than 3 hours
+  const { now, renderedAt } = buildTime();
 
-  // Lookup for sensor metadata
   const sensorLookup = new Map<number, SensorMeta>();
-  if (sensorMetaList?.payload) {
-    sensorMetaList.payload.forEach((s) => sensorLookup.set(s.location_id, s));
-  }
+  sensorMetaList?.payload?.forEach((s) => sensorLookup.set(s.location_id, s));
 
-  // Build sensor items
   const liveSensors: MapSensorItem[] = (pedestrian?.payload?.sensors ?? [])
     .map((s) => {
       const meta = sensorLookup.get(s.location_id);
@@ -49,12 +36,11 @@ export default async function MapPage() {
         lon: meta.lon,
         indoor: meta.indoor,
         count: s.count,
-        typical: s.typical || 1,
+        typical: s.typical,
       };
     })
     .filter((s): s is MapSensorItem => s !== null);
 
-  // Build parking items
   const liveParking: MapParkingItem[] = (parking?.payload ?? []).map((p) => ({
     kerbsideid: p.kerbsideid,
     lat: p.lat,
@@ -63,37 +49,14 @@ export default async function MapPage() {
     stale: p.stale,
   }));
 
-  // Group forecasts by sensor
-  const forecastsBySensor: Record<number, Array<{ hourLabel: string; forecast: number; typical: number }>> = {};
-  forecasts.forEach((f) => {
-    const list = forecastsBySensor[f.sensor_id] || [];
-    const dateObj = new Date(f.hour);
-    const hourLabel = dateObj.toLocaleTimeString("en-AU", {
-      hour: "numeric",
-      hour12: true,
-      timeZone: "Australia/Melbourne",
-    });
-    list.push({
-      hourLabel,
-      forecast: f.predicted_count,
-      typical: f.baseline_count ?? f.predicted_count * 0.95,
-    });
-    forecastsBySensor[f.sensor_id] = list;
-  });
-
-  // Group history by sensor
-  const historyBySensor: Record<number, Array<{ hourLabel: string; actual: number }>> = {};
-  history.forEach((h) => {
-    const list = historyBySensor[h.location_id] || [];
-    const dateObj = new Date(h.hour);
-    const hourLabel = dateObj.toLocaleTimeString("en-AU", {
-      hour: "numeric",
-      hour12: true,
-      timeZone: "Australia/Melbourne",
-    });
-    list.push({ hourLabel, actual: h.count });
-    historyBySensor[h.location_id] = list;
-  });
+  // Per-sensor chart: actual for the last 24 h, the model's forecast and each
+  // hour's own typical from 24 h back to 24 h ahead.
+  const seriesBySensor = buildSeriesBySensor(
+    history,
+    forecasts,
+    floorHour(now) - 24 * HOUR_MS,
+    floorHour(now) + 25 * HOUR_MS
+  );
 
   return (
     <main className="relative w-full h-[calc(100vh-4rem)] overflow-hidden bg-[#05080D]">
@@ -101,10 +64,9 @@ export default async function MapPage() {
         sensors={liveSensors}
         parking={liveParking}
         summaryText={summary?.payload?.text}
-        updatedMinutesAgo={updatedMinutesAgo}
-        isStale={isStale}
-        forecastsBySensor={forecastsBySensor}
-        historyBySensor={historyBySensor}
+        updatedAt={pedestrian?.updatedAt.toISOString() ?? null}
+        renderedAt={renderedAt}
+        seriesBySensor={seriesBySensor}
       />
     </main>
   );

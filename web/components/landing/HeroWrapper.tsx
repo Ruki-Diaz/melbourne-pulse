@@ -3,6 +3,9 @@
 import dynamic from "next/dynamic";
 import React from "react";
 
+import { FreshnessBadge } from "@/components/ui/FreshnessBadge";
+import { useFreshness } from "@/lib/useFreshness";
+
 const DynamicHero = dynamic(
   () => import("@/components/ui/glass-headline-hero").then((mod) => mod.GlassHeadlineHero),
   {
@@ -28,7 +31,10 @@ const DynamicHero = dynamic(
 );
 
 interface HeroWrapperProps {
-  eyebrow: string;
+  /** When the live data was last written (ISO), or null if there is none. */
+  updatedAt: string | null;
+  /** When the server built this page (ISO). */
+  renderedAt: string;
   title: string;
   description: string;
   primaryAction: { label: string; href: string };
@@ -36,6 +42,7 @@ interface HeroWrapperProps {
   colors: string[];
 }
 
-export function HeroWrapper(props: HeroWrapperProps) {
-  return <DynamicHero {...props} />;
+export function HeroWrapper({ updatedAt, renderedAt, ...props }: HeroWrapperProps) {
+  const freshness = useFreshness(updatedAt, renderedAt);
+  return <DynamicHero {...props} badge={<FreshnessBadge freshness={freshness} />} />;
 }
