@@ -1,7 +1,8 @@
 """Hourly ingest of City of Melbourne live pedestrian and parking data.
 
 Pulls three feeds, aggregates them to hourly rows, and upserts:
-  pedestrian_hourly  last two local hours per sensor (current one is_partial)
+  pedestrian_hourly  every hour of the last 24 per sensor (newest one is_partial),
+                     so missed runs and partial hours heal on the next run
   parking_hourly     CBD-wide free/occupied/stale counts for this hour
   latest             slim current state for the website
 Rows older than 90 days are trimmed. If a feed fails the others are still
@@ -19,9 +20,10 @@ from pulse import aggregate, api
 from pulse.aggregate import HourCount
 from pulse.timeutil import HOUR, UTC, floor_hour, local
 
-# The per-minute feed holds ~26 h (10 MB). Download only the last few hours:
-# enough to re-write the previous complete hour even when the feed lags.
-WINDOW_HOURS = 3
+# The per-minute feed holds ~26 h (~10 MB). Re-reading 24 h every run means a
+# run GitHub skipped, or a cron that fired late, costs nothing: the next run
+# re-writes every hour it missed. Upserts make re-writing idempotent.
+WINDOW_HOURS = 24
 
 
 @dataclass
@@ -97,7 +99,12 @@ def report(feeds: Feeds) -> None:
         by_hour: dict[datetime, list[HourCount]] = {}
         for h in feeds.pedestrian:
             by_hour.setdefault(h.hour, []).append(h)
-        for hour, rows in sorted(by_hour.items()):
+        ordered = sorted(by_hour.items())
+        print(
+            f"[pedestrian] {len(ordered)} hours ({local(ordered[0][0]):%a %H:00} - "
+            f"{local(ordered[-1][0]):%a %H:00 %Z}), {len(feeds.pedestrian):,} sensor-hours"
+        )
+        for hour, rows in ordered[-2:]:
             flag = "partial" if rows[0].is_partial else "complete"
             print(
                 f"[pedestrian] {local(hour):%a %d %b %H:00 %Z} ({flag}): "

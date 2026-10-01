@@ -13,10 +13,11 @@ on free tiers, for **$0**.
 ## How it works
 
 ```
-City of Melbourne Open Data ──► GitHub Actions (hourly, :07) ──► Neon Postgres ◄── Next.js on Vercel
-  parking bay sensors              pytest (gate)                 hourly aggregates    (read-only role,
-  pedestrian counts                fetch.py  → aggregates                             ISR, revalidate
-  sensor locations                 summary.py → Gemini Flash                          on demand)
+City of Melbourne Open Data ──► GitHub Actions (hourly) ────────► Neon Postgres ◄── Next.js on Vercel
+  parking bay sensors              started by cron-job.org :07   hourly aggregates    (read-only role,
+  pedestrian counts                pytest (gate)                                      ISR, revalidate
+  sensor locations                 fetch.py  → aggregates                             on demand)
+                                   summary.py → Gemini Flash
                                    POST /api/revalidate ────────────────────────────►
 ```
 
@@ -36,6 +37,10 @@ City of Melbourne Open Data ──► GitHub Actions (hourly, :07) ──► Neo
   after each ingest. Leaflet loads client-side only.
 - **`docs/data.md`**: the real API fields, their quirks, and how each was
   checked.
+- **Scheduling:** GitHub's own cron skips runs on busy hours, so cron-job.org
+  starts the hourly job and GitHub's schedule is a backup that stands down when
+  it isn't needed. Each run re-reads 24 hours, so a missed run heals on the next
+  one. See [docs/scheduling.md](docs/scheduling.md).
 
 ## Forecast results
 
@@ -98,7 +103,9 @@ call.
 ### The other services
 
 - **GitHub Actions:** free and unlimited on a public repo. The hourly job takes
-  about 1 min, so about 730 min/month.
+  about 1 min, so about 730 min/month, plus a few seconds an hour for the backup
+  schedule's check (which never touches the database).
+- **cron-job.org:** free; one request an hour.
 - **Gemini Flash (free API):** 24 short calls a day, well under the free daily
   request limit. Pinned to `gemini-3.8-flash`, falling back to
   `gemini-3.5-flash`. If both fail, or a reply's numbers don't match the real
@@ -139,6 +146,8 @@ call.
 | Secret | `GEMINI_API_KEY` | from [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | Secret | `REVALIDATE_SECRET` | `openssl rand -hex 32` (same value as in Vercel) |
 | Variable | `SITE_URL` | your Vercel URL, e.g. `https://<project>.vercel.app` (add after deploying; until then the revalidate step is skipped) |
+
+Then set up the hourly trigger on cron-job.org: [docs/scheduling.md](docs/scheduling.md).
 
 ### 3. Website (Vercel Hobby)
 
