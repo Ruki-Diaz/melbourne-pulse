@@ -146,7 +146,7 @@ call.
 | Secret | `DATABASE_URL` | Neon pooled URL, owner role |
 | Secret | `GEMINI_API_KEY` | from [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | Secret | `REVALIDATE_SECRET` | `openssl rand -hex 32` (same value as in Vercel) |
-| Variable | `SITE_URL` | your Vercel URL, e.g. `https://<project>.vercel.app` (add after deploying; until then the revalidate step is skipped) |
+| Variable | `SITE_URL` | your Vercel URL, e.g. `https://melbourne-pulse-au.vercel.app` (add after deploying; until then the revalidate step is skipped) |
 
 Then set up the hourly trigger on cron-job.org: [docs/scheduling.md](docs/scheduling.md).
 
