@@ -6,8 +6,8 @@ on free tiers, for **$0**.
 
 **Live:** [melbourne-pulse-au.vercel.app](https://melbourne-pulse-au.vercel.app)
 
-**Forecast accuracy:** the LightGBM model's error is 10% lower than the app's
-8-week baseline (55.3 vs 61.7 people/hour) on 8 weeks of unseen data.
+**Forecast accuracy:** the LightGBM model's error is 14% lower than the app's
+8-week baseline (53.2 vs 61.7 people/hour) on 8 weeks of unseen data.
 [Report](model/REPORT.md)
 
 ![Melbourne Pulse landing page: live summary sentence, pedestrians now, % of parking bays free, busiest spot](docs/screenshot.png)
@@ -30,10 +30,12 @@ City of Melbourne Open Data ──► GitHub Actions (hourly) ──────
   that fails. `seed_history.py` backfills 8 weeks of history once, so "busier
   than usual" works from day one.
 - **`model/`** (Python, LightGBM). `train.py` learns from two years of hourly
-  counts and writes [REPORT.md](model/REPORT.md). `predict.py` runs daily at
+  counts plus past weather forecasts (Open-Meteo, free, no key) and writes
+  [REPORT.md](model/REPORT.md). `predict.py` runs daily at
   ~4am Melbourne time and writes the next 36 hours per sensor, plus the
   "typical" baseline, into `forecasts`. 36 rather than 24, so there are always
-  at least 24 hours ahead to show.
+  at least 24 hours ahead to show. If the weather forecast can't be fetched,
+  that run uses a second model without weather instead of failing.
 - **`web/`** (Next.js 16, App Router, Tailwind, Leaflet + MapLibre GL, Recharts). The landing
   page, `/map` and `/about` are server components that read Neon over HTTP as
   a read-only role. Pages are cached for an hour and refreshed on demand right
@@ -56,11 +58,15 @@ Lower is better.
 |---|---:|---:|
 | Same hour last week | 71.5 | 31.6% |
 | Typical (8-week median, the app's baseline) | 61.7 | 25.7% |
-| **LightGBM** | **55.3** | **23.6%** |
+| LightGBM without weather | 55.3 | 23.6% |
+| **LightGBM with the weather forecast** | **53.2** | **22.3%** |
 
-LightGBM is 10% more accurate than the app's own baseline, and better in every
-daytime hour. Every input it uses is known at least a week in advance, so
-nothing leaks from the future. [Full report, with chart and method](model/REPORT.md).
+LightGBM is 14% more accurate than the app's own baseline, and better in every
+daytime hour. Adding the weather forecast was tested on the same hours and
+shipped because it won: in wet hours the error drops from 81.7 to 69.2. Every
+history input is known at least a week in advance, and weather inputs are
+forecasts issued a day ahead, never observed weather, so nothing leaks from
+the future. [Full report, with chart and method](model/REPORT.md).
 
 ## Free-tier budget
 
@@ -179,7 +185,7 @@ cd pipeline
 cd ../model
 ../.venv/bin/pip install -r requirements-dev.txt
 ../.venv/bin/python -m pytest -q          # includes a no-future-leakage test
-../.venv/bin/python train.py              # ~5 min; rewrites model.txt.gz, REPORT.md, chart.png
+../.venv/bin/python train.py              # ~10 min; rewrites model*.txt.gz, REPORT.md, chart.png
 ../.venv/bin/python predict.py --dry-run
 
 # web

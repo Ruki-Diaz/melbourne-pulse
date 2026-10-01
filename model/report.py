@@ -40,16 +40,20 @@ FEATURE_NAMES = {
     "lag_1w_holiday": "Was the same day last week a public holiday?",
     "school_holiday": "Is it a Victorian school holiday?",
     "down_days_4w": "Days the sensor was down in the last 4 weeks",
+    "precipitation": "Rain forecast for the hour (mm)",
+    "wet": "Is the hour forecast to be wet (0.2 mm or more)?",
+    "precip_3h": "Rain forecast for the hour and the two before it",
+    "temperature": "Temperature forecast for the hour",
+    "wind": "Wind speed forecast for the hour",
 }
 
 
-def write(attempts: list[dict], best: dict, meta: dict, out: Path) -> None:
+def write(attempts: list[dict], best: dict, meta: dict, out: Path, decision: dict) -> None:
+    keys = ("label", "lead", "columns", "objective", "rounds", "trials", "results", "split", "importance")
     metrics = {
         "model": meta,
-        "attempts": [
-            {k: a[k] for k in ("label", "columns", "objective", "rounds", "trials", "results", "split", "importance")}
-            for a in attempts
-        ],
+        "decision": decision,
+        "attempts": [{k: a[k] for k in keys} for a in attempts],
     }
     (out / "metrics.json").write_text(json.dumps(metrics, indent=1) + "\n")
     (out / ".cache").mkdir(exist_ok=True)
@@ -57,7 +61,7 @@ def write(attempts: list[dict], best: dict, meta: dict, out: Path) -> None:
     names = sensor_names()
     sensors, week_start = chart(best["test_frame"], names, out / "chart.png")
     labels = [names.get(s, f"Sensor {s}") for s in sensors]
-    (out / "REPORT.md").write_text(markdown(attempts, best, meta, labels, week_start))
+    (out / "REPORT.md").write_text(markdown(attempts, best, meta, labels, week_start, decision))
     print("wrote metrics.json, chart.png, REPORT.md")
 
 
@@ -127,7 +131,99 @@ def week_note(start: pd.Timestamp) -> str:
     )
 
 
-def markdown(attempts: list[dict], best: dict, meta: dict, chart_sensors: list[str], week_start: pd.Timestamp) -> str:
+def weather_section(attempts: list[dict], decision: dict) -> str:
+    """The "Does weather help?" section: one table, the decision, and why."""
+    by_label = {a["label"]: a for a in attempts}
+    control = by_label[decision["control"]]
+    latest, day1 = (by_label[label] for label in decision["candidates"])
+    c, fresh, old = (a["results"][LGBM] for a in (control, latest, day1))
+    typ = control["results"][TYPICAL]
+
+    def row(name: str, r: dict) -> str:
+        return f"| {name} | {r['mae']:.1f} | {r['wet_mae']:.1f} |"
+
+    table = "\n".join(
+        [
+            row("Typical (8-week median)", typ),
+            row("BASE: LightGBM without weather", c),
+            row("BASE + WEATHER, forecast issued just before the hour", fresh),
+            row("BASE + WEATHER, forecast issued 24 h before the hour", old),
+        ]
+    )
+    wet_hours, caught = decision["test_wet_hours"], decision["test_wet_hours_also_wet_day1"]
+    missed = (
+        f"of the {wet_hours} wet hours in the test weeks, the forecast made a day earlier "
+        f"called only {caught} wet"
+    )
+    if decision["ship_weather"]:
+        verdict = (
+            f"**Decision: ship BASE + WEATHER.** It beats BASE on overall test error with both sets of "
+            f"forecasts ({fresh['mae']:.1f} and {old['mae']:.1f} against {c['mae']:.1f}). The shipped model is "
+            "the one trained on day-old forecasts, so the daily job never relies on forecasts fresher than "
+            "it was tested with."
+        )
+        why = (
+            f"Why: rain does thin the crowds and the model picks that up, but the gain is limited by the "
+            f"weather forecast itself: {missed}."
+        )
+    elif fresh["mae"] < c["mae"]:
+        verdict = (
+            f"**Decision: keep BASE; weather is not shipped.** Weather wins only with forecasts issued just "
+            f"before each hour ({fresh['mae']:.1f} against {c['mae']:.1f}). With forecasts issued a day "
+            f"earlier it scores {old['mae']:.1f}, no better than BASE, and the daily job's forecasts are "
+            "up to a day old for the hours the site shows."
+        )
+        why = (
+            f"Why: rain does thin the crowds, but the model can only use it if the rain is forecast, and "
+            f"{missed}."
+        )
+    else:
+        verdict = (
+            f"**Decision: keep BASE; weather is not shipped.** BASE + WEATHER does not beat BASE on overall "
+            f"test error ({fresh['mae']:.1f} with the freshest forecasts and {old['mae']:.1f} with day-old "
+            f"ones, against {c['mae']:.1f})."
+        )
+        why = (
+            f"Why: only {wet_hours} of the {decision['test_hours']:,} test hours were wet, so rain moves the "
+            f"overall average very little, and the forecasts are too unreliable to make up for it: {missed}."
+        )
+
+    return f"""## Does weather help?
+
+A separate study of the same sensors (*Rain or Shine*, 2025) found about 18%
+fewer pedestrians in a wet hour and about 30% fewer in heavy rain. So the
+model was given the weather **forecast** for each hour (rain, rain over the
+last three hours, a wet/dry flag, temperature and wind, from Open-Meteo) and
+retrained with the same settings, the same split and the same test hours.
+
+| Method | All test hours (MAE) | Wet test hours only (MAE) |
+|---|---:|---:|
+{table}
+
+*"BASE" is the best model without weather ({decision['control']} in the
+Attempts table). Wet hours are the {control['split']['wet_rows_scored']:,}
+test sensor-hours ({wet_hours} of {decision['test_hours']:,} hours) where the
+freshest forecast had at least 0.2 mm of rain.*
+
+{verdict}
+
+{why}
+
+The two weather rows differ only in how old the forecast is. Observed weather
+was never used, because the model won't have it when it runs. Open-Meteo's
+Historical Forecast API joins up the first few hours of every past forecast
+run, so its values were issued just before the hour they describe. The daily
+job runs only once a day, at about 4am, and the site shows each of its
+predictions for up to 24 hours, so the weather forecast behind a prediction
+can be up to a day old. The last row uses the forecast issued 24 hours before
+each hour (Open-Meteo's Previous Runs API), which is as old as it gets. A
+model that only won on the fresher row would look better in this test than it
+would be on the site.
+"""
+
+
+def markdown(attempts: list[dict], best: dict, meta: dict, chart_sensors: list[str], week_start: pd.Timestamp,
+             decision: dict) -> str:
     r, split = best["results"], best["split"]
     lgbm, typ, naive = r[LGBM], r[TYPICAL], r[NAIVE]
     beat = lgbm["mae"] < typ["mae"]
@@ -170,6 +266,15 @@ def markdown(attempts: list[dict], best: dict, meta: dict, chart_sensors: list[s
         "line, so the site should show typical only."
     )
 
+    weather_limit = (
+        """- Weather comes from a free forecast service (Open-Meteo). If it can't be
+  reached, that day's run uses the model without weather (`model_base.txt.gz`),
+  so those forecasts are as accurate as BASE, not better.
+"""
+        if decision["ship_weather"]
+        else ""
+    )
+
     return f"""# Forecast model report
 
 *Generated by `model/train.py` on {meta['trained_at'][:10]}. Numbers come from `metrics.json`.*
@@ -200,6 +305,7 @@ meaningless.*
 The chart shows the three busiest sensors ({sensors_text}) over one week of
 the test period. The model never saw these weeks during training.{week_note(week_start)}
 
+{weather_section(attempts, decision)}
 ## How it was tested fairly
 
 - **Data:** two years of hourly counts from {split['sensors']} City of Melbourne
@@ -215,7 +321,8 @@ the test period. The model never saw these weeks during training.{week_note(week
   ahead, so the model may only use information that exists well before the
   hour it predicts. Every history-based input looks back at least a full week,
   for example "same hour last week". An automated test deletes the most recent
-  7 days of data and checks that no input changes.
+  7 days of data and checks that no input changes. Weather inputs are
+  forecasts, never observed weather (see "Does weather help?").
 - **Same questions for everyone.** All three methods were scored on the same
   {split['test_rows_scored']:,} sensor-hours, the ones where every method
   could make a prediction.
@@ -235,6 +342,7 @@ the test period. The model never saw these weeks during training.{week_note(week
 {tries}
 
 "Extra" adds Victorian **school holidays** and a **sensor-was-down** count.
+"Weather" adds the five weather-forecast inputs described above.
 The loss function and the number of trees were chosen on the validation weeks
 only. Tree count was capped at 1,500 to keep the model file small; the l1 runs
 stopped at or near that cap, so a larger model might gain a little more.
@@ -256,7 +364,7 @@ stopped at or near that cap, so a larger model might gain a little more.
   protests or big sports days, so those hours will be off.
 - A sensor that has just been installed or repaired has little history, so
   its forecast leans on the general pattern for that hour and day.
-- The shipped model was retrained on all the data using the settings chosen
+{weather_limit}- The shipped model was retrained on all the data using the settings chosen
   above. It is {meta['size_bytes'] / 1e6:.1f} MB (`model.txt.gz`) and is rebuilt
   by running `python model/train.py`.
 """
@@ -269,11 +377,11 @@ def main() -> int:
     here = Path(__file__).parent
     saved = json.loads((here / "metrics.json").read_text())
     attempts = saved["attempts"]
-    best = min(attempts, key=lambda a: a["results"][LGBM]["mae"])
+    best = next(a for a in attempts if a["label"] == saved["decision"]["shipped"])
     best["results"] = {k: {**v, "by_hour": {int(h): m for h, m in v["by_hour"].items()}} for k, v in best["results"].items()}
     with open(here / ".cache" / "test_frame.pkl", "rb") as f:
         best["test_frame"] = pickle.load(f)
-    write(attempts, best, json.loads((here / "model_meta.json").read_text()), here)
+    write(attempts, best, json.loads((here / "model_meta.json").read_text()), here, saved["decision"])
     return 0
 
 

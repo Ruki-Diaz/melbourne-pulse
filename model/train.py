@@ -5,6 +5,9 @@ Split (strictly by time, never shuffled):
   validation  weeks 16-9 from the end (early stopping + choosing the objective)
   test        the last 8 weeks, touched once for the final comparison
 The shipped model is then refit on all data with the chosen settings.
+
+Weather is tested as an add-on to the best history-only feature set: same
+settings, same split, same test sensor-hours. It ships only if it wins.
 """
 
 from __future__ import annotations
@@ -22,11 +25,15 @@ import pandas as pd
 import data
 import features
 import report
+import weather
 
 HERE = Path(__file__).parent
 TEST_WEEKS = 8
 VAL_WEEKS = 8
 MAPE_MIN = 10  # MAPE is undefined at 0 and explodes near it: only score hours with >= 10 people
+# Weather forecasts to test, by how old they are (see weather.py).
+LEADS = {"latest": "issued just before the hour", "day1": "issued 24 h before the hour"}
+FALLBACK_MODEL = "model_base.txt.gz"
 OBJECTIVES = ["l1", "poisson", "tweedie"]
 PARAMS = {
     "learning_rate": 0.1,
@@ -61,8 +68,10 @@ def fit(X, y, objective, rounds, valid=None):
     return lgb.train(params, train_set, num_boost_round=rounds, **kwargs)
 
 
-def run(hist: pd.DataFrame, columns: list[str]) -> dict:
-    X_all = features.build(hist, hist, columns)
+def run(hist: pd.DataFrame, columns: list[str], forecasts: pd.DataFrame | None = None,
+        wet: np.ndarray | None = None) -> dict:
+    """Train and score one feature set. `wet` marks the hist rows that count as wet hours."""
+    X_all = features.build(hist, hist, columns, forecasts)
     y_all = hist["count"].to_numpy(dtype=float)
     d = hist["date"].reset_index(drop=True)
     last = d.max()
@@ -92,16 +101,18 @@ def run(hist: pd.DataFrame, columns: list[str]) -> dict:
     # Compare on the same hours: those where every method has an answer.
     fair = np.isfinite(Xt["lag_1w"].to_numpy()) & np.isfinite(Xt["typical_8w"].to_numpy())
     preds = {
-        "Seasonal naive (same hour last week)": Xt["lag_1w"].to_numpy(),
-        "Typical (8-week median, the app's baseline)": Xt["typical_8w"].to_numpy(),
-        "LightGBM": pred,
+        report.NAIVE: Xt["lag_1w"].to_numpy(),
+        report.TYPICAL: Xt["typical_8w"].to_numpy(),
+        report.LGBM: pred,
     }
     y = yt[fair]
+    wet_fair = (wet[test][fair] if wet is not None else np.zeros(len(y), dtype=bool))
     test_hours = pd.Series(Xt["hour"].to_numpy()[fair])
     results = {
         name: {
             "mae": mae(y, p[fair]),
             "mape": mape(y, p[fair]),
+            "wet_mae": mae(y[wet_fair], p[fair][wet_fair]) if wet_fair.any() else None,
             "by_hour": {
                 int(h): {"mae": mae(y[m], p[fair][m]), "mape": mape(y[m], p[fair][m])}
                 for h in range(24)
@@ -126,6 +137,7 @@ def run(hist: pd.DataFrame, columns: list[str]) -> dict:
             "train_rows": int(train.sum()),
             "test_rows_scored": int(fair.sum()),
             "test_rows_total": int(test.sum()),
+            "wet_rows_scored": int(wet_fair.sum()),
             "sensors": int(hist["location_id"].nunique()),
         },
         "importance": dict(zip(columns, booster.feature_importance("gain").tolist())),
@@ -147,25 +159,68 @@ def main() -> int:
     hist = data.clean(raw)
     print(f"  {len(raw):,} raw rows -> {len(hist):,} clean hourly rows, {hist['location_id'].nunique()} sensors")
 
-    attempts = []
-    for label, columns in [("base", features.BASE), ("base + extra", features.BASE + features.EXTRA)]:
-        print(f"training with {label} features")
-        outcome = run(hist, columns)
-        outcome["label"] = label
-        attempts.append(outcome)
-        lgbm = outcome["results"]["LightGBM"]["mae"]
-        typical = outcome["results"]["Typical (8-week median, the app's baseline)"]["mae"]
-        print(f"  test MAE: LightGBM {lgbm:.2f} vs typical {typical:.2f}")
+    first, last = hist["date"].min().date(), hist["date"].max().date()
+    forecasts = {lead: weather.history(first, last, lead, cache=not args.no_cache) for lead in LEADS}
+    rain = {
+        lead: features.build(hist, hist, ["precipitation"], frame)["precipitation"].to_numpy()
+        for lead, frame in forecasts.items()
+    }
+    # "Wet" for scoring = rain in the freshest forecast, the closest thing here to what
+    # really happened. Every model is scored on these same hours.
+    wet = rain["latest"] >= features.WET_MM
 
-    best = min(attempts, key=lambda a: a["results"]["LightGBM"]["mae"])
+    def attempt(label: str, columns: list[str], lead: str | None = None) -> dict:
+        print(f"training with {label} features")
+        outcome = run(hist, columns, forecasts.get(lead), wet)
+        outcome["label"], outcome["lead"] = label, lead
+        attempts.append(outcome)
+        r = outcome["results"]
+        print(
+            f"  test MAE: LightGBM {r[report.LGBM]['mae']:.2f} vs typical {r[report.TYPICAL]['mae']:.2f}; "
+            f"wet hours: {r[report.LGBM]['wet_mae']:.2f} vs {r[report.TYPICAL]['wet_mae']:.2f}"
+        )
+        return outcome
+
+    def score(a: dict) -> float:
+        return a["results"][report.LGBM]["mae"]
+
+    attempts = []
+    attempt("base", features.BASE)
+    attempt("base + extra", features.BASE + features.EXTRA)
+    control = min(attempts, key=score)  # the best model without weather
+
+    # Same settings, split and test hours; the only change is the weather columns.
+    candidates = [
+        attempt(f"{control['label']} + weather ({LEADS[lead]})", control["columns"] + features.WEATHER, lead)
+        for lead in LEADS
+    ]
+    # Weather must win with the forecasts as specified ("latest") and still win with
+    # day-old ones, the worst predict.py will hold for the hours the site shows.
+    ship_weather = all(score(c) < score(control) for c in candidates)
+    best = candidates[-1] if ship_weather else control
+    test = (hist["date"] >= best["split"]["test"][0]).to_numpy()
+    decision = {
+        "control": control["label"],
+        "candidates": [c["label"] for c in candidates],
+        "shipped": best["label"],
+        "ship_weather": ship_weather,
+        "test_wet_hours": int(pd.Series(wet[test]).groupby(hist["ts"][test].to_numpy()).any().sum()),
+        "test_wet_hours_also_wet_day1": int(
+            pd.Series((wet & (rain["day1"] >= features.WET_MM))[test]).groupby(hist["ts"][test].to_numpy()).any().sum()
+        ),
+        "test_hours": int(hist["ts"][test].nunique()),
+    }
+    print(f"weather {'ships' if ship_weather else 'does not ship'}: keeping {best['label']}")
 
     # Ship: refit the best setup on all usable history.
-    X, y, usable = best["X_all"], best["y_all"], best["usable"]
-    booster = fit(X[usable], y[usable], best["objective"], best["rounds"])
-    # LightGBM's text format compresses ~3x; gzip keeps the file small enough to commit.
-    model_path = HERE / "model.txt.gz"
-    with gzip.open(model_path, "wt", compresslevel=9) as f:
-        f.write(booster.model_to_string())
+    def save_model(a: dict, name: str) -> Path:
+        booster = fit(a["X_all"][a["usable"]], a["y_all"][a["usable"]], a["objective"], a["rounds"])
+        # LightGBM's text format compresses ~3x; gzip keeps the file small enough to commit.
+        with gzip.open(HERE / name, "wt", compresslevel=9) as f:
+            f.write(booster.model_to_string())
+        return HERE / name
+
+    model_path = save_model(best, "model.txt.gz")
     meta = {
         "trained_at": datetime.now().isoformat(timespec="seconds"),
         "columns": best["columns"],
@@ -174,10 +229,17 @@ def main() -> int:
         "history_to": str(hist["date"].max().date()),
         "size_bytes": model_path.stat().st_size,
     }
+    fallback = HERE / FALLBACK_MODEL
+    if ship_weather:
+        # predict.py uses this model on days Open-Meteo can't be reached.
+        save_model(control, FALLBACK_MODEL)
+        meta["fallback"] = {"file": FALLBACK_MODEL, "columns": control["columns"]}
+    elif fallback.exists():
+        fallback.unlink()
     (HERE / "model_meta.json").write_text(json.dumps(meta, indent=2) + "\n")
     print(f"saved {model_path.name}: {meta['size_bytes'] / 1e6:.2f} MB")
 
-    report.write(attempts, best, meta, HERE)
+    report.write(attempts, best, meta, HERE, decision)
     return 0
 
 

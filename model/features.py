@@ -5,6 +5,11 @@ before the hour it predicts. All history features look back whole weeks (>= 7
 days), never "yesterday" or "an hour ago". Lags are matched on local date and
 local hour, so "same hour last week" stays 9am-to-9am across a DST change,
 exactly like the app's 'typical'.
+
+The one exception is WEATHER, which is not history at all: it is a weather
+*forecast* for the hour, joined on local date and local hour. It is only fair
+if the frame passed in holds forecasts issued before predict.py would run
+(see weather.py), never observed weather.
 """
 
 from __future__ import annotations
@@ -34,6 +39,9 @@ BASE = [
 ]
 # Extra features tried if BASE doesn't beat 'typical'. See REPORT.md.
 EXTRA = ["school_holiday", "down_days_4w"]
+# Weather forecast for the hour (Open-Meteo, see weather.py). Tested in REPORT.md.
+WEATHER = ["precipitation", "wet", "precip_3h", "temperature", "wind"]
+WET_MM = 0.2  # an hour counts as wet from 0.2 mm, the smallest amount a rain gauge records
 
 # Victorian school holidays, the gaps between terms listed at
 # vic.gov.au/school-term-dates-and-holidays-victoria (checked 2026-10-01).
@@ -63,11 +71,18 @@ def is_holiday(dates: pd.Series, category: str = "public") -> np.ndarray:
     return dates.dt.date.isin(days).to_numpy()
 
 
-def build(targets: pd.DataFrame, history: pd.DataFrame, columns: list[str] = BASE) -> pd.DataFrame:
+def build(
+    targets: pd.DataFrame,
+    history: pd.DataFrame,
+    columns: list[str] = BASE,
+    weather: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """Features for each (location_id, date, hour) in `targets`, using `history`.
 
     `history` has location_id, date, hour, count (cleaned by data.clean: up
-    sensor-days complete with zeros, down sensor-days absent).
+    sensor-days complete with zeros, down sensor-days absent). `weather` has
+    date, hour and the forecast columns from weather.py; it is only needed
+    when `columns` includes WEATHER features. Hours it doesn't cover are NaN.
     """
     counts = history.set_index(["location_id", "date", "hour"])["count"]
     day_totals = history.groupby(["location_id", "date"])["count"].sum()
@@ -110,4 +125,12 @@ def build(targets: pd.DataFrame, history: pd.DataFrame, columns: list[str] = BAS
         # sensor-days with no data among the 4 same-weekdays used for mean_4w
         "down_days_4w": sum(np.isnan(day_total(k)) for k in range(1, 5)),
     }
+    if set(columns) & set(WEATHER):
+        if weather is None:
+            raise ValueError("weather features requested but no weather frame given")
+        w = weather.set_index(["date", "hour"])[["precipitation", "precip_3h", "temperature", "wind"]]
+        w = w.reindex(pd.MultiIndex.from_arrays([date, hour]))
+        rain = w["precipitation"].to_numpy(dtype=float)
+        all_features.update({name: w[name].to_numpy(dtype=float) for name in w.columns})
+        all_features["wet"] = np.where(np.isnan(rain), np.nan, rain >= WET_MM)
     return pd.DataFrame({name: all_features[name] for name in columns})
