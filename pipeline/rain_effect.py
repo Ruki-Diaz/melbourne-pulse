@@ -44,6 +44,16 @@ REPS = 400
 SEED = 20261002
 MIN_WET_HOURS = 100
 CI = (2.5, 97.5)
+# Stored with the overall row, so the website quotes the method from the data, not from its own copy.
+METHOD = {
+    "wet_mm": WET_MM,
+    "heavy_mm": HEAVY_MM,
+    "min_dry_hours": MIN_DRY_HOURS,
+    "bootstrap_reps": REPS,
+    "min_wet_hours": MIN_WET_HOURS,
+    "cold_below_c": COLD_BELOW_C,
+    "warm_above_c": WARM_ABOVE_C,
+}
 
 Row = tuple[int, date, int, datetime, int]  # location_id, local date, local hour, UTC hour start, count
 
@@ -224,7 +234,7 @@ def compute(t: Table, reps: int = REPS, seed: int = SEED) -> list[dict]:
                     "ci_high": high,
                     "n_wet_hours": n,
                     "reliable": reliable(n, low, high),
-                    "detail": None,
+                    "detail": {"method": {**METHOD, "bootstrap_reps": reps}} if name == "overall" else None,
                 }
             )
 
@@ -300,7 +310,11 @@ def load(today: date) -> tuple[Table, date, date]:
 
 
 def save(conn, results: list[dict], start: date, end: date, computed_at: datetime) -> None:
-    """Replace the whole table in one transaction, so a retired sensor's row can't linger."""
+    """Replace the whole table: the old rows are deleted and the new ones inserted in ONE transaction.
+
+    Readers therefore see either the old table or the new one, never a mix or
+    an empty table, and if anything fails part-way the old rows are still there.
+    """
     from psycopg.types.json import Jsonb
 
     with conn.transaction():

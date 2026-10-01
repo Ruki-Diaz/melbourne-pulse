@@ -40,6 +40,13 @@ City of Melbourne Open Data ──► GitHub Actions (hourly) ──────
   page, `/map` and `/about` are server components that read Neon over HTTP as
   a read-only role. Pages are cached for an hour and refreshed on demand right
   after each ingest. Leaflet loads client-side only.
+- **Plan page (`/plan`).** Picks a time to be in the CBD from the forecast and
+  the chance of rain, for the whole CBD or one sensor. Its data comes from
+  three small endpoints ([docs/plan-api.md](docs/plan-api.md)) that answer from
+  one cached read of the database. `pipeline/weather_forecast.py` (hourly)
+  stores the Open-Meteo forecast and `pipeline/rain_effect.py` (monthly)
+  measures how much rain changes pedestrian counts, which the page uses to
+  explain the forecast, never to adjust it.
 - **`docs/data.md`**: the real API fields, their quirks, and how each was
   checked.
 - **Scheduling:** GitHub's own cron skips runs on busy hours, so cron-job.org

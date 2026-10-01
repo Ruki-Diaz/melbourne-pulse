@@ -36,6 +36,15 @@ Update **BOTH** cron jobs in https://console.cron-job.org:
 
 If you forget: cron-job.org emails on 1 Oct that the job failed. The site shows its last data (amber "Last updated X h ago") until you renew.
 
+## Yearly: review the GitHub Actions versions
+
+Do this with the token renewal (24 Sep). All four workflows in `.github/workflows/` pin two things that GitHub retires on its own schedule:
+
+- **Runner image:** `runs-on: ubuntu-24.04`. A fixed image, not `ubuntu-latest`, so a new Ubuntu can't change the jobs unannounced. Check https://github.com/actions/runner-images for the newest LTS image and whether 24.04 has a retirement date; move every workflow together.
+- **Actions:** `actions/checkout@v7`, `actions/setup-python@v7`, `actions/setup-node@v7` (all run on Node 24; set on 2 Oct 2026). Check each action's releases page for a newer major and for deprecation warnings on recent runs in the Actions tab ("Node.js XX actions are deprecated").
+
+After changing either, start `ci` (push), then run `hourly`, `daily-forecast` and `monthly-rain-effect` once from the Actions tab and confirm all are green.
+
 ## cron-job.org settings (to rebuild from scratch)
 
 ### Job 1: Melbourne Pulse hourly
@@ -70,7 +79,8 @@ GitHub's own schedule (`37 17 * * *` UTC = 03:37 AEST / 04:37 AEDT) is a fallbac
 
 - **Trigger:** Automatic GitHub Actions schedule on the 1st of each month at 17:13 UTC (`13 17 1 * *` = 03:13 AEST / 04:13 AEDT on the 2nd), or manual run via `workflow_dispatch`.
 - **Purpose:** Executes `pipeline/rain_effect.py` to re-estimate how rain changes foot traffic over the previous 12 months using matched wet vs dry hour comparisons.
-- **Table:** Completely replaces the rows in `rain_effect`.
+- **Table:** Replaces every row in `rain_effect` in one transaction, so a run that fails part-way leaves the previous month's rows in place.
+- **Never overlaps the hourly job:** it shares the `hourly` concurrency group. If it is ever cancelled while waiting, start it again from the Actions tab.
 
 ## Database Tables & Cadence
 
@@ -105,7 +115,7 @@ GitHub's own schedule (`37 17 * * *` UTC = 03:37 AEST / 04:37 AEDT) is a fallbac
      - `forecasts`: check `max(generated_at)` (should be within the last 24h).
      - `weather_forecast`: check `max(fetched_at)` (should be within the last 1-2h).
      - `rain_effect`: check `max(computed_at)` (should be within the last 35 days).
-   - Check Vercel cache revalidation: `/api/revalidate` with `secret` clears tag `plan`.
+   - `/api/plan` shows what the site last read: `dataFreshness` has each table's newest write and `snapshotAt`, the time of the read. If the tables are newer than `snapshotAt` by more than an hour, the hourly job's "Revalidate website" step isn't getting through (check `SITE_URL` and `REVALIDATE_SECRET`).
 4. **Neon usage** (free: 100 CU-hours/month, 0.5 GB): https://console.neon.tech → project → Usage.
 
 ## If a key leaks

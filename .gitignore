@@ -17,3 +17,4 @@ model/.cache/
 
 # Local AI-assistant skill packs (kept on disk, not part of the project)
 .agents/
+docs/plan-review/

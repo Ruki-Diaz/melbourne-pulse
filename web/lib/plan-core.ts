@@ -1,5 +1,6 @@
 /**
- * Pure logic for the Plan API: time windows, hour rows and recommendations.
+ * Pure logic for the Plan API: time windows, hour rows, recommendations and
+ * turning one database snapshot into the API responses.
  * No imports and no I/O, so it runs anywhere, including the pytest check in
  * pipeline/tests/test_plan_recommendations.py (via scripts/plan-recommend.mjs).
  *
@@ -64,6 +65,117 @@ export type Recommendations = {
   mostTraffic: RecommendationSet;
   busyButDry: RecommendationSet;
   quietest: RecommendationSet;
+  /**
+   * The hours the blocks were chosen from: start of the first candidate block
+   * to the end of the last. `daytimeOnly` is true when only 7am-10pm blocks
+   * were offered. null when the window has no forecast hours.
+   */
+  hoursConsidered: { from: string; to: string; daytimeOnly: boolean } | null;
+};
+
+export type PlanSensor = { id: number; name: string; lat: number; lon: number };
+
+export type RainEffect = {
+  /** Change in pedestrian counts in a wet hour, in percent (-18.5 = 18.5% fewer). */
+  value: number;
+  ciLow: number | null;
+  ciHigh: number | null;
+  nWetHours: number;
+  reliable: boolean;
+  /** true when the sensor's own estimate wasn't reliable and the CBD-wide one is shown instead. */
+  usedFallback: boolean;
+  scope: "sensor" | "cbd";
+};
+
+export type DataFreshness = {
+  /** Newest write to each table, whatever hours the rows are for. */
+  forecastGeneratedAt: string | null;
+  weatherFetchedAt: string | null;
+  rainEffectComputedAt: string | null;
+  /** When the website last read the database. Every number in a response comes from this one read. */
+  snapshotAt: string;
+};
+
+export type PlanResponse = {
+  generatedAt: string;
+  dataFreshness: DataFreshness;
+  sensor: PlanSensor | "cbd";
+  /** Sensors behind every forecastCount and typicalCount in `hours`: the same ones in each hour. */
+  sensorsUsed: number;
+  /** The hours asked for. `complete` is false when the forecast doesn't reach the end of the window yet. */
+  window: { key: PlanWindow; start: string; end: string; complete: boolean };
+  hours: PlanHour[];
+  rainEffect: RainEffect | null;
+  recommendations: Recommendations;
+};
+
+/** How the rain effect was measured, as stored with it by pipeline/rain_effect.py. */
+export type RainMethod = {
+  wetMm: number;
+  heavyMm: number;
+  minDryHours: number;
+  bootstrapReps: number;
+  minWetHours: number;
+  coldBelowC: number;
+  warmAboveC: number;
+};
+
+export type EvidenceRow = {
+  group: "overall" | "intensity" | "daytype" | "temperature";
+  key: string;
+  label: string;
+  value: number;
+  ciLow: number | null;
+  ciHigh: number | null;
+  nWetHours: number;
+  reliable: boolean;
+};
+
+export type EvidenceResponse = {
+  generatedAt: string;
+  /** The 12 months the effects were measured over (local dates, inclusive). */
+  window: { start: string; end: string } | null;
+  computedAt: string | null;
+  method: RainMethod | null;
+  /** Overall first, then each breakdown: the rows of the forest plot. */
+  forest: EvidenceRow[];
+  /** Average CBD-wide count per wet hour of the day, next to matched dry hours. */
+  profile: Array<{ hour: number; wet: number; dry: number; nWetHours: number }>;
+  sensors: Array<{
+    id: number;
+    name: string;
+    lat: number | null;
+    lon: number | null;
+    value: number;
+    ciLow: number | null;
+    ciHigh: number | null;
+    nWetHours: number;
+    reliable: boolean;
+  }>;
+};
+
+export type RainRow = {
+  scope: string;
+  key: string;
+  effect: number | null;
+  ciLow: number | null;
+  ciHigh: number | null;
+  nWetHours: number;
+  reliable: boolean;
+};
+
+/** One read of the database: everything a response is computed from. */
+export type Snapshot = {
+  readAt: string;
+  forecasts: ForecastPoint[];
+  weather: WeatherPoint[];
+  sensors: Array<{ location_id: number; name: string; lat: number; lon: number }>;
+  rain: RainRow[];
+  rainProfile: Array<{ hour: number; wet: number; dry: number; n_wet_hours: number }>;
+  rainMethod: RainMethod | null;
+  rainWindow: { start: string; end: string } | null;
+  /** max() over each whole table, not just the rows in this snapshot. */
+  latestWrite: { forecasts: string | null; weather: string | null; rainEffect: string | null };
 };
 
 const MELBOURNE = new Intl.DateTimeFormat("en-CA", {
@@ -124,52 +236,83 @@ function round1(value: number): number {
 }
 
 /**
- * One row per hour in the range that has a forecast. For "cbd" the counts are
- * summed over sensors; typicalCount is only given when every sensor in that
- * hour has one, and deltaPct compares like with like (sensors that have both).
+ * One row per hour in the range, plus how many sensors are behind the counts.
+ *
+ * For "cbd", forecastCount and typicalCount are sums over the SAME sensors in
+ * every hour: the sensors that have both a forecast and a typical in all of
+ * the hours returned. So the two columns are always comparable, hour to hour
+ * and with each other, and one sensor missing a value can't move the total.
+ * (If no sensor has a typical at all, the forecast alone is summed and
+ * typicalCount is null.) Hours covered by fewer than half the sensors, such as
+ * leftovers from an old forecast run, are left out rather than shrinking the set.
  */
 export function buildHours(
   forecasts: ForecastPoint[],
   weather: WeatherPoint[],
   sensor: number | "cbd",
   range: { startMs: number; endMs: number }
-): PlanHour[] {
-  type Sum = { predicted: number; rows: number; typical: number; withTypical: number; predictedWithTypical: number };
-  const byHour = new Map<number, Sum>();
-  for (const f of forecasts) {
-    if (f.ms < range.startMs || f.ms >= range.endMs) continue;
-    if (sensor !== "cbd" && f.sensorId !== sensor) continue;
-    const sum = byHour.get(f.ms) ?? { predicted: 0, rows: 0, typical: 0, withTypical: 0, predictedWithTypical: 0 };
-    sum.predicted += f.predicted;
-    sum.rows += 1;
-    if (f.baseline !== null) {
-      sum.typical += f.baseline;
-      sum.withTypical += 1;
-      sum.predictedWithTypical += f.predicted;
-    }
-    byHour.set(f.ms, sum);
+): { hours: PlanHour[]; sensorsUsed: number } {
+  const inRange = forecasts.filter(
+    (f) => f.ms >= range.startMs && f.ms < range.endMs && (sensor === "cbd" || f.sensorId === sensor)
+  );
+  const paired = inRange.some((f) => f.baseline !== null);
+  const usable = paired && sensor === "cbd" ? inRange.filter((f) => f.baseline !== null) : inRange;
+
+  const byHour = new Map<number, Map<number, ForecastPoint>>();
+  for (const f of usable) {
+    if (!byHour.has(f.ms)) byHour.set(f.ms, new Map());
+    (byHour.get(f.ms) as Map<number, ForecastPoint>).set(f.sensorId, f);
   }
+  const fullest = Math.max(0, ...[...byHour.values()].map((rows) => rows.size));
+  const kept = [...byHour.entries()].filter(([, rows]) => rows.size * 2 >= fullest).sort(([a], [b]) => a - b);
+  // Sensors present in every kept hour.
+  const sensors = kept.reduce<number[] | null>(
+    (used, [, rows]) => (used === null ? [...rows.keys()] : used.filter((id) => rows.has(id))),
+    null
+  ) ?? [];
+
   const weatherAt = new Map(weather.map((w) => [w.ms, w]));
-  return [...byHour.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([ms, sum]) => {
-      const w = weatherAt.get(ms);
-      return {
-        hourLocal: localIso(ms),
-        forecastCount: Math.round(sum.predicted),
-        typicalCount: sum.withTypical === sum.rows ? Math.round(sum.typical) : null,
-        deltaPct: sum.typical > 0 ? round1((sum.predictedWithTypical / sum.typical - 1) * 100) : null,
-        precipMm: w?.precipMm ?? null,
-        precipProb: w?.precipProb ?? null,
-        tempC: w?.tempC ?? null,
-        windKmh: w?.windKmh ?? null,
-        weatherCode: w?.weatherCode ?? null,
-      };
-    });
+  const hours = sensors.length === 0 ? [] : kept.map(([ms, rows]) => {
+    const points = sensors.map((id) => rows.get(id) as ForecastPoint);
+    const predicted = points.reduce((sum, p) => sum + p.predicted, 0);
+    const typical = points.every((p) => p.baseline !== null)
+      ? points.reduce((sum, p) => sum + (p.baseline as number), 0)
+      : null;
+    const w = weatherAt.get(ms);
+    return {
+      hourLocal: localIso(ms),
+      forecastCount: Math.round(predicted),
+      typicalCount: typical === null ? null : Math.round(typical),
+      deltaPct: typical !== null && typical > 0 ? round1((predicted / typical - 1) * 100) : null,
+      precipMm: w?.precipMm ?? null,
+      precipProb: w?.precipProb ?? null,
+      tempC: w?.tempC ?? null,
+      windKmh: w?.windKmh ?? null,
+      weatherCode: w?.weatherCode ?? null,
+    };
+  });
+  return { hours, sensorsUsed: hours.length ? sensors.length : 0 };
 }
 
 export function isRainRisk(hour: PlanHour): boolean {
   return (hour.precipProb ?? 0) >= WET_PROB_PCT || (hour.precipMm ?? 0) >= WET_MM;
+}
+
+/** Rain wording by the highest chance of rain: under 30%, 30-49%, 50% and over. */
+export const RAIN_SOME_PCT = 30;
+export const RAIN_LIKELY_PCT = WET_PROB_PCT;
+export type RainTier = "low" | "some" | "likely";
+
+export function rainTier(maxPrecipProb: number): RainTier {
+  const pct = Math.round(maxPrecipProb);
+  return pct >= RAIN_LIKELY_PCT ? "likely" : pct >= RAIN_SOME_PCT ? "some" : "low";
+}
+
+const RAIN_PHRASE: Record<RainTier, string> = { low: "low rain risk", some: "some rain risk", likely: "rain likely" };
+
+/** "low rain risk (12%)" / "some rain risk (41%)" / "rain likely (76%)"; null without a rain forecast. */
+export function rainPhrase(maxPrecipProb: number | null): string | null {
+  return maxPrecipProb === null ? null : `${RAIN_PHRASE[rainTier(maxPrecipProb)]} (${Math.round(maxPrecipProb)}%)`;
 }
 
 type Block = {
@@ -210,7 +353,7 @@ function blocksOf(hours: PlanHour[]): Block[] {
   return out;
 }
 
-type Preset = keyof Recommendations;
+type Preset = "mostTraffic" | "busyButDry" | "quietest";
 type Role = keyof RecommendationSet;
 
 /** Best first. Ties always go to the earlier block, so the result is deterministic. */
@@ -229,9 +372,11 @@ function lead(preset: Preset, role: Role, block: Block): string {
     return { best: "Lowest", secondBest: "Next-lowest", avoid: "Highest" }[role] + " forecast foot traffic";
   }
   if (!block.hasWeather) return { best: "Busiest", secondBest: "Next-busiest", avoid: "Quietest" }[role] + " hours";
-  if (role === "avoid") return block.rainRiskHours > 0 ? "Most likely to be wet" : "Dry, but the lowest forecast foot traffic";
-  if (block.rainRiskHours > 0) return "No fully dry option here; the busiest of the least rainy hours";
-  return role === "best" ? "Busiest dry hours" : "Next-busiest dry hours";
+  if (role === "avoid") {
+    return block.rainRiskHours > 0 ? "Most likely to be wet" : "Rain isn't likely, but the lowest forecast foot traffic";
+  }
+  if (block.rainRiskHours > 0) return "Rain is likely in every option; the busiest of the least rainy hours";
+  return `${role === "best" ? "Busiest" : "Next-busiest"} hours where rain isn't likely`;
 }
 
 function reason(preset: Preset, role: Role, block: Block): string {
@@ -242,9 +387,8 @@ function reason(preset: Preset, role: Role, block: Block): string {
       : Math.abs(block.deltaPct) < 5
         ? ", about typical for these hours"
         : `, ${Math.abs(Math.round(block.deltaPct))}% ${block.deltaPct > 0 ? "above" : "below"} typical`;
-  const rain = !block.hasWeather || block.maxPrecipProb === null
-    ? "No weather forecast for these hours."
-    : `Rain ${block.rainRiskHours > 0 ? "likely" : "unlikely"} (up to ${Math.round(block.maxPrecipProb)}% chance).`;
+  const phrase = block.hasWeather ? rainPhrase(block.maxPrecipProb) : null;
+  const rain = phrase === null ? "No rain forecast for these hours." : `${phrase[0].toUpperCase()}${phrase.slice(1)}.`;
   return `${lead(preset, role, block)}: about ${count} pedestrian counts an hour${delta}. ${rain}`;
 }
 
@@ -282,5 +426,140 @@ export function recommend(hours: PlanHour[]): Recommendations {
     mostTraffic: pick("mostTraffic", blocks),
     busyButDry: pick("busyButDry", blocks),
     quietest: pick("quietest", blocks),
+    hoursConsidered: blocks.length
+      ? {
+          from: localIso(Math.min(...blocks.map((b) => b.startMs))),
+          to: localIso(Math.max(...blocks.map((b) => b.endMs))),
+          daytimeOnly: active.length > 0,
+        }
+      : null,
+  };
+}
+
+const pct = (fraction: number | null) => (fraction === null ? null : Math.round(fraction * 1000) / 10);
+
+function sensorsWithForecasts(snapshot: Snapshot): PlanSensor[] {
+  const active = new Set(snapshot.forecasts.map((f) => f.sensorId));
+  return snapshot.sensors
+    .filter((s) => active.has(s.location_id))
+    .map((s) => ({ id: s.location_id, name: s.name, lat: s.lat, lon: s.lon }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Sensors that currently have a forecast, by name: the options for the sensor picker. */
+export function planSensors(snapshot: Snapshot): PlanSensor[] {
+  return sensorsWithForecasts(snapshot);
+}
+
+function rainEffectFor(snapshot: Snapshot, sensor: number | "cbd"): RainEffect | null {
+  const shape = (row: RainRow, scope: "sensor" | "cbd", usedFallback: boolean): RainEffect => ({
+    value: pct(row.effect) as number,
+    ciLow: pct(row.ciLow),
+    ciHigh: pct(row.ciHigh),
+    nWetHours: row.nWetHours,
+    reliable: row.reliable,
+    usedFallback,
+    scope,
+  });
+  const overall = snapshot.rain.find((r) => r.scope === "overall" && r.effect !== null);
+  if (sensor !== "cbd") {
+    const own = snapshot.rain.find((r) => r.scope === "sensor" && r.key === String(sensor) && r.effect !== null);
+    if (own?.reliable) return shape(own, "sensor", false);
+    // Not enough evidence at this sensor: show the CBD-wide effect instead.
+    if (overall) return shape(overall, "cbd", true);
+    return own ? shape(own, "sensor", false) : null;
+  }
+  return overall ? shape(overall, "cbd", false) : null;
+}
+
+/** The whole /api/plan response from one snapshot. null for a sensor id that has no forecast. */
+export function assemblePlan(
+  snapshot: Snapshot,
+  sensor: number | "cbd",
+  window: PlanWindow,
+  nowMs: number
+): PlanResponse | null {
+  const meta = sensor === "cbd" ? "cbd" : sensorsWithForecasts(snapshot).find((s) => s.id === sensor);
+  if (!meta) return null;
+
+  const range = windowRange(nowMs, window);
+  const { hours, sensorsUsed } = buildHours(snapshot.forecasts, snapshot.weather, sensor, range);
+  const wanted = Math.round((range.endMs - range.startMs) / HOUR_MS);
+  return {
+    generatedAt: new Date(nowMs).toISOString(),
+    dataFreshness: {
+      forecastGeneratedAt: snapshot.latestWrite.forecasts,
+      weatherFetchedAt: snapshot.latestWrite.weather,
+      rainEffectComputedAt: snapshot.latestWrite.rainEffect,
+      snapshotAt: snapshot.readAt,
+    },
+    sensor: meta,
+    sensorsUsed,
+    window: {
+      key: window,
+      start: new Date(range.startMs).toISOString(),
+      end: new Date(range.endMs).toISOString(),
+      complete: hours.length === wanted,
+    },
+    hours,
+    rainEffect: rainEffectFor(snapshot, sensor),
+    recommendations: recommend(hours),
+  };
+}
+
+function forestRows(method: RainMethod | null): Array<{ group: EvidenceRow["group"]; key: string; label: string }> {
+  const m = method;
+  return [
+    { group: "overall", key: "all", label: "All wet hours" },
+    { group: "intensity", key: "light", label: m ? `Light rain (${m.wetMm} to ${m.heavyMm} mm an hour)` : "Light rain" },
+    { group: "intensity", key: "heavy", label: m ? `Heavy rain (${m.heavyMm} mm an hour or more)` : "Heavy rain" },
+    { group: "daytype", key: "weekday", label: "Weekdays" },
+    { group: "daytype", key: "weekend", label: "Weekends and public holidays" },
+    { group: "temperature", key: "cold", label: m ? `Cold (below ${m.coldBelowC} °C)` : "Cold" },
+    { group: "temperature", key: "mild", label: m ? `Mild (${m.coldBelowC} to ${m.warmAboveC} °C)` : "Mild" },
+    { group: "temperature", key: "warm", label: m ? `Warm (above ${m.warmAboveC} °C)` : "Warm" },
+  ];
+}
+
+/** Everything behind the rain-effect claim: forest-plot rows, the hourly profile and every sensor. */
+export function assembleEvidence(snapshot: Snapshot, nowMs: number): EvidenceResponse {
+  const find = (scope: string, key: string) => snapshot.rain.find((r) => r.scope === scope && r.key === key);
+  const meta = new Map(snapshot.sensors.map((s) => [s.location_id, s]));
+  return {
+    generatedAt: new Date(nowMs).toISOString(),
+    window: snapshot.rainWindow,
+    computedAt: snapshot.latestWrite.rainEffect,
+    method: snapshot.rainMethod,
+    forest: forestRows(snapshot.rainMethod).flatMap(({ group, key, label }) => {
+      const row = find(group, key);
+      return row && row.effect !== null
+        ? [{ group, key, label, value: pct(row.effect) as number, ciLow: pct(row.ciLow), ciHigh: pct(row.ciHigh),
+             nWetHours: row.nWetHours, reliable: row.reliable }]
+        : [];
+    }),
+    profile: snapshot.rainProfile.map((p) => ({
+      hour: p.hour,
+      wet: Math.round(p.wet),
+      dry: Math.round(p.dry),
+      nWetHours: p.n_wet_hours,
+    })),
+    sensors: snapshot.rain
+      .filter((r) => r.scope === "sensor" && r.effect !== null)
+      .map((r) => {
+        const id = Number(r.key);
+        const s = meta.get(id);
+        return {
+          id,
+          name: s?.name ?? `Sensor ${id}`,
+          lat: s?.lat ?? null,
+          lon: s?.lon ?? null,
+          value: pct(r.effect) as number,
+          ciLow: pct(r.ciLow),
+          ciHigh: pct(r.ciHigh),
+          nWetHours: r.nWetHours,
+          reliable: r.reliable,
+        };
+      })
+      .sort((a, b) => a.value - b.value),
   };
 }

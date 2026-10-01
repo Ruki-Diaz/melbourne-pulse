@@ -63,3 +63,16 @@ body {
   background-color: #05080D !important;
   font-family: inherit !important;
 }
+
+/* The small maps on /plan: a dark attribution bar to match the page. */
+.plan-map .leaflet-control-attribution {
+  background: rgba(5, 8, 13, 0.85) !important;
+  color: #cbd5e1 !important;
+  font-size: 10px !important;
+  line-height: 1.4 !important;
+  padding: 2px 6px !important;
+}
+
+.plan-map .leaflet-control-attribution a {
+  color: #5eead4 !important;
+}
