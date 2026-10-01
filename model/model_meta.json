@@ -1,5 +1,5 @@
 {
-  "trained_at": "2026-10-01T03:51:27",
+  "trained_at": "2026-10-02T00:28:35",
   "columns": [
     "sensor",
     "hour",
@@ -14,10 +14,34 @@
     "day_total_1w",
     "lag_1w_holiday",
     "school_holiday",
-    "down_days_4w"
+    "down_days_4w",
+    "precipitation",
+    "wet",
+    "precip_3h",
+    "temperature",
+    "wind"
   ],
   "objective": "l1",
-  "rounds": 1487,
+  "rounds": 1431,
   "history_to": "2026-09-29",
-  "size_bytes": 2980439
+  "size_bytes": 2997939,
+  "fallback": {
+    "file": "model_base.txt.gz",
+    "columns": [
+      "sensor",
+      "hour",
+      "dow",
+      "month",
+      "public_holiday",
+      "lag_1w",
+      "lag_2w",
+      "typical_8w",
+      "mean_4w",
+      "weeks_available",
+      "day_total_1w",
+      "lag_1w_holiday",
+      "school_holiday",
+      "down_days_4w"
+    ]
+  }
 }

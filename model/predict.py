@@ -4,6 +4,10 @@ Runs daily from GitHub Actions (~4am Melbourne). 36 hours, not 24, so the site
 always has at least 24 hours ahead even just before the next daily run. Re-running is safe: rows are
 upserted on (sensor_id, hour), and forecasts more than 2 days old are removed.
 History comes from the same city dataset the model was trained on.
+
+If the shipped model uses weather features, the Open-Meteo forecast is fetched
+here. If that fails, this run uses the weather-free fallback model instead, so
+the daily job never fails because of the weather service.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ import pandas as pd
 
 import data  # also puts ../pipeline on sys.path
 import features
+import weather
 from pulse.timeutil import HOUR, UTC, floor_hour, hours_from, local
 
 HERE = Path(__file__).parent
@@ -44,9 +49,15 @@ def targets_for(history: pd.DataFrame, now: datetime) -> pd.DataFrame:
     )
 
 
-def forecast(history: pd.DataFrame, now: datetime, booster: lgb.Booster, columns: list[str]) -> pd.DataFrame:
+def forecast(
+    history: pd.DataFrame,
+    now: datetime,
+    booster: lgb.Booster,
+    columns: list[str],
+    forecasts: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     targets = targets_for(history, now)
-    X = features.build(targets, history, columns)
+    X = features.build(targets, history, columns, forecasts)
     baseline = features.build(targets, history, ["typical_8w"])["typical_8w"].to_numpy()
     return pd.DataFrame(
         {
@@ -56,6 +67,38 @@ def forecast(history: pd.DataFrame, now: datetime, booster: lgb.Booster, columns
             "baseline_count": np.where(np.isfinite(baseline), baseline, np.nan),
         }
     )
+
+
+def load_model(name: str) -> lgb.Booster:
+    with gzip.open(HERE / name, "rt") as f:
+        return lgb.Booster(model_str=f.read())
+
+
+def weather_for(history: pd.DataFrame, now: datetime) -> pd.DataFrame:
+    """The Open-Meteo forecast, checked to cover every hour being predicted."""
+    forecasts = weather.forecast()
+    hours = targets_for(history, now).drop_duplicates("ts")
+    covered = features.build(hours, history, features.WEATHER, forecasts)
+    missing = int(covered.isna().any(axis=1).sum())
+    if missing:
+        raise ValueError(f"weather forecast is missing {missing} of the {len(hours)} hours")
+    return forecasts
+
+
+def choose_model(meta: dict, history: pd.DataFrame, now: datetime) -> tuple[str, list[str], pd.DataFrame | None]:
+    """(model file, feature columns, weather forecast) for this run.
+
+    A model without weather features never calls Open-Meteo. One with them
+    falls back to the weather-free model if the forecast can't be fetched.
+    """
+    if not set(meta["columns"]) & set(features.WEATHER):
+        return "model.txt.gz", meta["columns"], None
+    try:
+        return "model.txt.gz", meta["columns"], weather_for(history, now)
+    except Exception as exc:  # noqa: BLE001 - any weather problem must not stop the daily job
+        fallback = meta["fallback"]
+        print(f"WARNING: weather forecast unavailable ({exc}); using the fallback model {fallback['file']}")
+        return fallback["file"], fallback["columns"], None
 
 
 def save(rows: pd.DataFrame) -> None:
@@ -89,14 +132,13 @@ def main() -> int:
     args = parser.parse_args()
 
     meta = json.loads((HERE / "model_meta.json").read_text())
-    with gzip.open(HERE / "model.txt.gz", "rt") as f:
-        booster = lgb.Booster(model_str=f.read())
 
     now = datetime.now(UTC)
     today = local(now).date()
     print(f"loading {HISTORY_WEEKS} weeks of history")
     history = data.clean(data.download(today - timedelta(weeks=HISTORY_WEEKS), today))
-    rows = forecast(history, now, booster, meta["columns"])
+    model_file, columns, forecasts = choose_model(meta, history, now)
+    rows = forecast(history, now, load_model(model_file), columns, forecasts)
 
     first, last = local(rows["hour"].min()), local(rows["hour"].max())
     print(
