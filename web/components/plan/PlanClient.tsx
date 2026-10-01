@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useSearchParams } from "next/navigation";
 import { AlertTriangle, RotateCw } from "lucide-react";
@@ -23,6 +23,26 @@ const ChartSkeleton = () => (
 // The chart library is the heaviest part of the page; it loads after the answer is on screen.
 const HourChart = dynamic(() => import("./HourChart").then((mod) => mod.HourChart), { ssr: false, loading: ChartSkeleton });
 
+/**
+ * Draws its children only once the placeholder is on (or near) the screen. On a
+ * phone the chart starts below the fold, so its code isn't part of the first load.
+ */
+function WhenVisible({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || visible) return;
+    const observer = new IntersectionObserver(
+      (entries) => entries.some((e) => e.isIntersecting) && setVisible(true),
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [visible]);
+  return visible ? <>{children}</> : <div ref={ref}><ChartSkeleton /></div>;
+}
+
 const DEFAULTS = { sensor: "cbd", goal: "busyButDry", window: "36h" } as const;
 
 type Result = { key: string; plan?: PlanResponse; error?: string };
@@ -40,7 +60,7 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
  * The Plan page. The choices (sensor, goal, window, evidence open) live in the
  * URL, so a plan can be bookmarked or shared; every figure comes from /api/plan.
  */
-export function PlanClient() {
+export function PlanClient({ initialPlan }: { initialPlan: PlanResponse | null }) {
   const params = useSearchParams();
   const pathname = usePathname();
   const now = useNow();
@@ -81,7 +101,9 @@ export function PlanClient() {
   const [attempt, setAttempt] = useState(0);
   const hour = now > 0 ? Math.floor(now / HOUR_MS) : null;
   const key = `${sensor}|${planWindow}|${hour}|${attempt}`;
-  const [result, setResult] = useState<Result | null>(null);
+  // The server's plan for the default choices is shown at once; the request below replaces it.
+  // "initial" never equals a real key, so it is marked as updating unless it is for this very hour.
+  const [result, setResult] = useState<Result | null>(initialPlan ? { key: "initial", plan: initialPlan } : null);
   useEffect(() => {
     if (hour === null) return;
     const controller = new AbortController();
@@ -94,12 +116,14 @@ export function PlanClient() {
     return () => controller.abort();
   }, [key, sensor, planWindow, hour]);
 
-  const isLoading = result?.key !== key;
-  const plan = result?.plan ?? null;
+  const isDefault = sensor === DEFAULTS.sensor && planWindow === DEFAULTS.window;
+  const fromServer = result?.key === "initial";
+  // The server's plan stands in only for the default choices, and counts as current if it was made this hour.
+  const serverPlanIsCurrent =
+    fromServer && isDefault && attempt === 0 && (hour === null || Math.floor(Date.parse(initialPlan!.generatedAt) / HOUR_MS) === hour);
+  const isLoading = result?.key !== key && !serverPlanIsCurrent;
+  const plan = fromServer && !isDefault ? null : (result?.plan ?? null);
   const error = !isLoading ? (result?.error ?? null) : null;
-  const goalLabel = GOALS.find((g) => g.id === goal)?.label ?? "";
-  const placeName = plan ? (plan.sensor === "cbd" ? CBD_LABEL : plan.sensor.name) : CBD_LABEL;
-
   const openEvidence = useCallback(() => {
     setParams({ evidence: "1" });
     requestAnimationFrame(() => {
@@ -111,6 +135,72 @@ export function PlanClient() {
   const selectSensor = useCallback((id: number | "cbd") => setParams({ sensor: String(id) }), [setParams]);
 
   return (
+    <PlanView
+      sensor={sensor}
+      goal={goal}
+      planWindow={planWindow}
+      evidenceOpen={evidenceOpen}
+      sensors={sensors}
+      sensorsError={sensorsError}
+      plan={plan}
+      error={error}
+      isLoading={isLoading}
+      now={now}
+      onSelectSensor={selectSensor}
+      onSelectGoal={(id) => setParams({ goal: id })}
+      onSelectWindow={(id) => setParams({ window: id })}
+      onToggleEvidence={(open) => setParams({ evidence: open ? "1" : null })}
+      onOpenEvidence={openEvidence}
+      onShowCbd={() => setParams({ sensor: null })}
+      onRetry={() => setAttempt((n) => n + 1)}
+    />
+  );
+}
+
+interface PlanViewProps {
+  sensor: number | "cbd";
+  goal: GoalOption;
+  planWindow: PlanWindow;
+  evidenceOpen: boolean;
+  sensors: PlanSensor[];
+  sensorsError: boolean;
+  plan: PlanResponse | null;
+  error: string | null;
+  isLoading: boolean;
+  now: number;
+  onSelectSensor: (sensor: number | "cbd") => void;
+  onSelectGoal: (goal: GoalOption) => void;
+  onSelectWindow: (window: PlanWindow) => void;
+  onToggleEvidence: (open: boolean) => void;
+  onOpenEvidence: () => void;
+  onShowCbd: () => void;
+  onRetry: () => void;
+}
+
+/** Everything on the page, given the choices and the data. No state of its own. */
+function PlanView({
+  sensor,
+  goal,
+  planWindow,
+  evidenceOpen,
+  sensors,
+  sensorsError,
+  plan,
+  error,
+  isLoading,
+  now,
+  onSelectSensor,
+  onSelectGoal,
+  onSelectWindow,
+  onToggleEvidence,
+  onOpenEvidence,
+  onShowCbd,
+  onRetry,
+}: PlanViewProps) {
+  const goalLabel = GOALS.find((g) => g.id === goal)?.label ?? "";
+  const placeName = plan ? (plan.sensor === "cbd" ? CBD_LABEL : plan.sensor.name) : CBD_LABEL;
+
+  return (
     <main className="min-h-screen bg-[#05080D]">
       <div className="fixed inset-0 -z-10 pointer-events-none bg-[radial-gradient(ellipse_at_top,_rgba(0,229,199,0.06)_0%,_transparent_60%)]" aria-hidden />
 
@@ -120,11 +210,11 @@ export function PlanClient() {
         <PlanControls
           sensors={sensors}
           selectedSensor={sensor}
-          onSelectSensor={selectSensor}
+          onSelectSensor={onSelectSensor}
           selectedGoal={goal}
-          onSelectGoal={(id) => setParams({ goal: id })}
+          onSelectGoal={onSelectGoal}
           selectedWindow={planWindow}
-          onSelectWindow={(id) => setParams({ window: id })}
+          onSelectWindow={onSelectWindow}
           isLoading={isLoading && plan !== null}
         />
 
@@ -141,7 +231,7 @@ export function PlanClient() {
             {sensor !== "cbd" && (
               <button
                 type="button"
-                onClick={() => setParams({ sensor: null })}
+                onClick={onShowCbd}
                 className={`px-3 py-1.5 rounded-lg border border-rose-400/40 text-xs font-semibold hover:bg-rose-500/10 ${FOCUS_RING}`}
               >
                 Show {CBD_LABEL}
@@ -149,7 +239,7 @@ export function PlanClient() {
             )}
             <button
               type="button"
-              onClick={() => setAttempt((n) => n + 1)}
+              onClick={onRetry}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-400/40 text-xs font-semibold hover:bg-rose-500/10 ${FOCUS_RING}`}
             >
               <RotateCw className="w-3.5 h-3.5" aria-hidden />
@@ -175,19 +265,52 @@ export function PlanClient() {
               isLoading={isLoading}
             />
             <ShortWindowNote plan={plan} />
-            <HourChart
-              hours={plan.hours}
-              bestBlock={plan.recommendations[goal].best}
-              avoidBlock={plan.recommendations[goal].avoid}
-              placeName={placeName}
-              isLoading={isLoading}
-            />
-            <RainEffectCard rainEffect={plan.rainEffect} placeName={placeName} onOpenEvidence={openEvidence} />
+            <WhenVisible>
+              <HourChart
+                hours={plan.hours}
+                bestBlock={plan.recommendations[goal].best}
+                avoidBlock={plan.recommendations[goal].avoid}
+                placeName={placeName}
+                isLoading={isLoading}
+              />
+            </WhenVisible>
+            <RainEffectCard rainEffect={plan.rainEffect} placeName={placeName} onOpenEvidence={onOpenEvidence} />
           </>
         )}
 
-        <EvidenceSection open={evidenceOpen} onToggle={(open) => setParams({ evidence: open ? "1" : null })} />
+        <EvidenceSection open={evidenceOpen} onToggle={onToggleEvidence} />
       </div>
     </main>
+  );
+}
+
+const NOTHING = () => {};
+
+/**
+ * What the server sends first: the page with its default choices (Whole CBD,
+ * busy but dry, next 36 hours) and the plan the server computed. PlanClient
+ * draws the same thing once it has read the URL, then takes over.
+ */
+export function PlanFirstPaint({ plan }: { plan: PlanResponse | null }) {
+  return (
+    <PlanView
+      sensor={DEFAULTS.sensor}
+      goal={DEFAULTS.goal}
+      planWindow={DEFAULTS.window}
+      evidenceOpen={false}
+      sensors={[]}
+      sensorsError={false}
+      plan={plan}
+      error={null}
+      isLoading={false}
+      now={0}
+      onSelectSensor={NOTHING}
+      onSelectGoal={NOTHING}
+      onSelectWindow={NOTHING}
+      onToggleEvidence={NOTHING}
+      onOpenEvidence={NOTHING}
+      onShowCbd={NOTHING}
+      onRetry={NOTHING}
+    />
   );
 }

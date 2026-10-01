@@ -88,6 +88,20 @@ def typicals_for(conn: psycopg.Connection, target: datetime) -> dict[int, float]
     return typical_by_sensor(rows, target)
 
 
+def upcoming_weather(conn: psycopg.Connection, hours: int = 12) -> list[dict]:
+    """Stored forecast rows from the hour in progress onwards (see weather_forecast.py)."""
+    rows = conn.execute(
+        """
+        select hour, precipitation, precipitation_probability, fetched_at
+        from weather_forecast
+        where hour >= date_trunc('hour', now()) and hour < date_trunc('hour', now()) + make_interval(hours => %s)
+        order by hour
+        """,
+        (hours,),
+    ).fetchall()
+    return [dict(zip(("hour", "precipitation", "precipitation_probability", "fetched_at"), r)) for r in rows]
+
+
 def trim(conn: psycopg.Connection) -> dict[str, int]:
     deleted = {}
     for table in ("pedestrian_hourly", "parking_hourly"):

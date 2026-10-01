@@ -291,3 +291,22 @@ def test_tomorrow_is_the_whole_local_day_across_the_dst_change():
     labels = [h["hourLocal"] for h in out["hours"]]
     assert len(labels) == 23 and all(label.startswith("2026-10-04") for label in labels)
     assert labels[1] == "2026-10-04T01:00:00+10:00" and labels[2] == "2026-10-04T03:00:00+11:00"  # no 02:00
+
+
+def test_landing_page_rain_outlook_matches_the_summary_rule():
+    """web/lib/plan-core.ts rainOutlook: first rain-risk hour in the next 12, with the same thresholds as summary.py."""
+    def outlook(by_hour: dict[int, tuple[float | None, float | None]], hours=12):
+        weather = [
+            {"ms": ms(TUESDAY, h), "precipProb": by_hour.get(h, (10, 0.0))[0], "precipMm": by_hour.get(h, (10, 0.0))[1],
+             "tempC": 15, "windKmh": 10, "weatherCode": 3}
+            for h in range(5, 24)
+        ]
+        return run({"rain": {"weather": weather, "nowMs": int(NOW.timestamp() * 1000), "hours": hours}})
+
+    assert outlook({}) is None
+    assert outlook({15: (80, 1.2), 16: (65, 0.4)}) == {"startMs": ms(TUESDAY, 15), "startLabel": "3pm", "maxProb": 80}
+    assert outlook({9: (20, 0.2)})["startLabel"] == "9am"  # by amount
+    assert outlook({9: (49, 0.1)}) is None  # just under both thresholds
+    assert outlook({5: (90, 2.0)})["startLabel"] == "now"  # the hour in progress (NOW is 05:30)
+    assert outlook({17: (90, 2.0)}) is None  # 12 hours from 05:00 ends at 17:00
+    assert outlook({17: (90, 2.0)}, hours=13)["startLabel"] == "5pm"

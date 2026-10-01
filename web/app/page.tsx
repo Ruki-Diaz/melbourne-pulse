@@ -3,8 +3,10 @@ import {
   getAllLatest,
   getForecasts,
   getRecentPedestrianHistory,
+  settledSensors,
   type SensorMeta,
 } from "@/lib/db";
+import { getRainOutlook } from "@/lib/plan";
 import { buildTime } from "@/lib/freshness";
 import { buildSeriesBySensor, floorHour, HOUR_MS } from "@/lib/series";
 import { HeroWrapper } from "@/components/landing/HeroWrapper";
@@ -27,10 +29,11 @@ export const revalidate = 3600;
 // Every number on this page comes from the database. When something is
 // missing the components show "Waiting for the next update", never a guess.
 export default async function HomePage() {
-  const [latestData, forecasts, history] = await Promise.all([
+  const [latestData, forecasts, history, rain] = await Promise.all([
     getAllLatest(),
     getForecasts(),
     getRecentPedestrianHistory(18),
+    getRainOutlook(12),
   ]);
   const { pedestrian, parking, sensors: sensorMetaList, summary } = latestData;
 
@@ -42,7 +45,10 @@ export default async function HomePage() {
 
   // 1. Stat strip
   const liveSensors = pedestrian?.payload?.sensors ?? [];
-  const totalPedestrians = liveSensors.length ? liveSensors.reduce((acc, s) => acc + (s.count || 0), 0) : null;
+  // Totals only use sensors that have finished reporting the hour, never a part-hour.
+  const counted = settledSensors(pedestrian?.payload);
+  const totalPedestrians = counted.length ? counted.reduce((acc, s) => acc + (s.count || 0), 0) : null;
+  const sensorsActive = pedestrian?.payload?.coverage?.active ?? counted.length;
 
   let pctParkingFree: number | null = null;
   if (Array.isArray(parking?.payload)) {
@@ -53,8 +59,8 @@ export default async function HomePage() {
   }
 
   let busiestSpot: { name: string; count: number } | null = null;
-  if (liveSensors.length > 0) {
-    const top = [...liveSensors].sort((a, b) => (b.count || 0) - (a.count || 0))[0];
+  if (counted.length > 0) {
+    const top = [...counted].sort((a, b) => (b.count || 0) - (a.count || 0))[0];
     busiestSpot = { name: sensorLookup.get(top.location_id)?.name ?? `Sensor #${top.location_id}`, count: top.count };
   }
 
@@ -125,7 +131,7 @@ export default async function HomePage() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen bg-[#05080D] text-slate-100 selection:bg-teal-500/30 selection:text-teal-200">
+    <main className="flex flex-col min-h-screen bg-[#05080D] text-slate-100 selection:bg-teal-500/30 selection:text-teal-200">
       {/* 1. WebGL2 Glass Headline Hero */}
       <HeroWrapper
         updatedAt={updatedAt}
@@ -137,12 +143,20 @@ export default async function HomePage() {
         }
         primaryAction={{ label: "Open the live map", href: "/map" }}
         secondaryAction={{ label: "How it works", href: "#how" }}
+        planLink={{
+          href: "/plan",
+          label: rain
+            ? `Rain likely ${rain.startLabel === "now" ? "now" : `from ${rain.startLabel}`} · Plan your day`
+            : "Plan your next 36 hours",
+        }}
         colors={["#05080D", "#00E5C7", "#2F6BFF", "#7C3AED", "#D6FFF7"]}
       />
 
       {/* 2. Glass Stat Strip overlapping Hero */}
       <StatStrip
         totalPedestrians={totalPedestrians}
+        sensorCount={counted.length}
+        sensorsActive={sensorsActive}
         pctParkingFree={pctParkingFree}
         busiestSpot={busiestSpot}
         hourIso={pedestrian?.payload?.hour ?? null}
@@ -164,6 +178,6 @@ export default async function HomePage() {
 
       {/* 7. Built By Section */}
       <BuiltBySection />
-    </div>
+    </main>
   );
 }

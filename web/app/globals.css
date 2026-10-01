@@ -76,3 +76,30 @@ body {
 .plan-map .leaflet-control-attribution a {
   color: #5eead4 !important;
 }
+
+/* Landing hero entrance: fade and slide in. CSS, not script, so the text shows before any JavaScript loads. */
+@keyframes hero-in {
+  from { opacity: 0; transform: translateY(15px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes hero-in-down {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: none; }
+}
+
+.hero-in,
+.hero-in-down {
+  animation: hero-in 0.6s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+}
+
+.hero-in-down {
+  animation-name: hero-in-down;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-in,
+  .hero-in-down {
+    animation: none;
+  }
+}

@@ -94,7 +94,7 @@ jobs:
         if: ${{ !cancelled() && steps.tests.outcome == 'success' && vars.SITE_URL != '' }}
         run: |
           curl -fsS -X POST "$SITE_URL/api/revalidate" -H "Authorization: Bearer $REVALIDATE_SECRET"
-          for path in / /map /opengraph-image "/api/plan?sensor=cbd&window=36h" /api/plan/evidence; do curl -fsS -o /dev/null "$SITE_URL$path"; done
+          for path in / /map /plan /opengraph-image /plan/opengraph-image "/api/plan?sensor=cbd&window=36h" /api/plan/evidence; do curl -fsS -o /dev/null "$SITE_URL$path"; done
         env:
           SITE_URL: ${{ vars.SITE_URL }}
           REVALIDATE_SECRET: ${{ secrets.REVALIDATE_SECRET }}

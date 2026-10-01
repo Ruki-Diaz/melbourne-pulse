@@ -30,6 +30,8 @@ WINDOW_HOURS = 24
 class Feeds:
     now: datetime
     pedestrian: list[HourCount] | None = None
+    # Newest minute each sensor has reported: tells a finished hour from one still arriving.
+    watermarks: dict[int, datetime] = field(default_factory=dict)
     bays: list[dict] | None = None
     sensors: list[dict] | None = None
     failures: list[str] = field(default_factory=list)
@@ -59,16 +61,12 @@ def collect(now: datetime | None = None) -> Feeds:
             return None
         return result
 
-    feeds.pedestrian = attempt(
-        "pedestrian",
-        lambda: aggregate.pedestrian_hourly(
-            api.export(
-                api.PEDESTRIAN_MINUTES,
-                where=f"sensing_datetime >= {api.odsql_ts(window_start)}",
-            ),
-            window_start,
-        ),
-    )
+    def pedestrian():
+        rows = api.export(api.PEDESTRIAN_MINUTES, where=f"sensing_datetime >= {api.odsql_ts(window_start)}")
+        feeds.watermarks = aggregate.sensor_watermarks(rows)
+        return aggregate.pedestrian_hourly(rows, window_start)
+
+    feeds.pedestrian = attempt("pedestrian", pedestrian)
     feeds.bays = attempt(
         "parking", lambda: aggregate.slim_parking(api.export(api.PARKING), feeds.now)
     )
@@ -79,18 +77,31 @@ def collect(now: datetime | None = None) -> Feeds:
 
 
 def pedestrian_payload(feeds: Feeds, typicals: dict[int, float]) -> dict:
+    """The latest complete hour for the website.
+
+    Each sensor says whether it has `settled`: finished reporting that hour.
+    Totals and comparisons with typical use settled sensors only, so a sensor
+    that is still uploading can't make the CBD look quiet. `coverage` says how
+    many of the sensors seen in the last 24 hours that is.
+    """
     hour = feeds.complete_hour
+    sensors = [
+        {
+            "location_id": h.location_id,
+            "count": h.count,
+            "typical": round(typicals[h.location_id]) if h.location_id in typicals else None,
+            "settled": aggregate.is_settled(feeds.watermarks.get(h.location_id), hour),
+        }
+        for h in feeds.pedestrian
+        if h.hour == hour
+    ]
     return {
         "hour": hour.isoformat(),
-        "sensors": [
-            {
-                "location_id": h.location_id,
-                "count": h.count,
-                "typical": round(typicals[h.location_id]) if h.location_id in typicals else None,
-            }
-            for h in feeds.pedestrian
-            if h.hour == hour
-        ],
+        "sensors": sensors,
+        "coverage": {
+            "reporting": sum(1 for s in sensors if s["settled"]),
+            "active": len({h.location_id for h in feeds.pedestrian}),
+        },
     }
 
 
@@ -110,6 +121,9 @@ def report(feeds: Feeds) -> None:
                 f"[pedestrian] {local(hour):%a %d %b %H:00 %Z} ({flag}): "
                 f"{len(rows)} sensors, {sum(r.count for r in rows):,} pedestrian counts"
             )
+        if feeds.complete_hour:
+            done = sum(1 for lid, at in feeds.watermarks.items() if aggregate.is_settled(at, feeds.complete_hour))
+            print(f"[pedestrian] {done} of {len(feeds.watermarks)} sensors have finished reporting the latest complete hour")
     if feeds.bays:
         stats = aggregate.parking_hourly(feeds.bays)
         pct = f"{stats['pct_free']:.0%}" if stats["pct_free"] is not None else "n/a"

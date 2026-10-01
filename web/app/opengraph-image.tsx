@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { getAllLatest } from "@/lib/db";
+import { getAllLatest, settledSensors } from "@/lib/db";
 import { getFreshness } from "@/lib/freshness";
 import metrics from "@/lib/model-metrics.json";
 
@@ -30,8 +30,9 @@ export default async function Image() {
   try {
     const data = await getAllLatest();
     updatedAt = data.pedestrian?.updatedAt ?? null;
-    if (data.pedestrian?.payload?.sensors?.length) {
-      totalPedestrians = data.pedestrian.payload.sensors.reduce(
+    const counted = settledSensors(data.pedestrian?.payload);
+    if (counted.length) {
+      totalPedestrians = counted.reduce(
         (acc, s) => acc + (s.count || 0),
         0
       );

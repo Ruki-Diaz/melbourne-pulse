@@ -4,13 +4,16 @@
 //   echo '{"forecasts": [...], "weather": [...], "sensor": "cbd", "nowMs": 0, "window": "12h"}' \
 //     | node scripts/plan-recommend.mjs
 // With a "snapshot" key instead, it returns the whole /api/plan response for that snapshot.
-import { assemblePlan, buildHours, recommend, windowRange } from "../lib/plan-core.ts";
+// With a "rain" key ({weather, nowMs, hours}) it returns the rain outlook used by the landing page.
+import { assemblePlan, buildHours, rainOutlook, recommend, windowRange } from "../lib/plan-core.ts";
 
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
-const { snapshot, forecasts, weather, sensor, nowMs, window } = JSON.parse(input);
+const { snapshot, rain, forecasts, weather, sensor, nowMs, window } = JSON.parse(input);
 
-if (snapshot) {
+if (rain) {
+  process.stdout.write(JSON.stringify(rainOutlook(rain.weather, rain.nowMs, rain.hours)));
+} else if (snapshot) {
   process.stdout.write(JSON.stringify(assemblePlan(snapshot, sensor, window, nowMs)));
 } else {
   const range = windowRange(nowMs, window);

@@ -7,10 +7,12 @@ import {
   assembleEvidence,
   assemblePlan,
   planSensors,
+  rainOutlook,
   type EvidenceResponse,
   type PlanResponse,
   type PlanSensor,
   type PlanWindow,
+  type RainOutlook,
   type RainMethod,
   type Snapshot,
 } from "./plan-core";
@@ -162,4 +164,24 @@ export async function getPlan(
 /** Everything behind the rain-effect claim: forest-plot rows, the hourly profile and every sensor. */
 export async function getPlanEvidence(nowMs: number = Date.now()): Promise<EvidenceResponse> {
   return assembleEvidence(await getSnapshot(), nowMs);
+}
+
+/** A weather forecast older than this is not quoted on the landing page. */
+const WEATHER_MAX_AGE_MS = 3 * 3_600_000;
+
+/**
+ * Rain in the next `hours`, for the landing page's link to /plan. null when
+ * none is forecast, the stored forecast is too old to quote, or the database
+ * can't be read: the page then shows its plain link instead of a guess.
+ */
+export async function getRainOutlook(hours: number, nowMs: number = Date.now()): Promise<RainOutlook | null> {
+  try {
+    const snapshot = await getSnapshot();
+    const fetchedAt = snapshot.latestWrite.weather;
+    if (!fetchedAt || nowMs - Date.parse(fetchedAt) > WEATHER_MAX_AGE_MS) return null;
+    return rainOutlook(snapshot.weather, nowMs, hours);
+  } catch (error) {
+    console.error("rain outlook unavailable:", error);
+    return null;
+  }
 }

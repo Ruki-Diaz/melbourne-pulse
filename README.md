@@ -1,33 +1,128 @@
 # Melbourne Pulse
 
-How busy is Melbourne's CBD right now? A live map of pedestrian counts and free
-parking bays, with 24-hour forecasts and a one-line AI summary. Everything runs
-on free tiers, for **$0**.
-
 **Live:** [melbourne-pulse-au.vercel.app](https://melbourne-pulse-au.vercel.app)
 
-**Forecast accuracy:** the LightGBM model's error is 14% lower than the app's
-8-week baseline (53.2 vs 61.7 people/hour) on 8 weeks of unseen data.
-[Report](model/REPORT.md)
+How busy is Melbourne's CBD right now, how busy will it be over the next 36
+hours, and when should you go? A live map, a machine-learning forecast and a
+planner, built on open city data and run entirely on free tiers.
 
-![Melbourne Pulse landing page: live summary sentence, pedestrians now, % of parking bays free, busiest spot](docs/screenshot.png)
+![Melbourne Pulse landing page: a one-line live summary, pedestrian counts this hour, parking bays free and the busiest sensor](docs/screenshot-home.png)
+
+![The Plan page: the best two hours to visit, with the hour-by-hour forecast against typical and the chance of rain](docs/screenshot-plan.png)
+
+## What it does
+
+- **Live counts.** Every hour it reads the City of Melbourne's pedestrian
+  sensors and parking bay sensors, and shows the counts on a
+  [map](https://melbourne-pulse-au.vercel.app/map) next to what is typical for
+  that hour and weekday.
+- **36-hour forecast.** A LightGBM model forecasts pedestrian counts for every
+  sensor, using each sensor's history, the calendar and the weather forecast.
+- **Plan page.** [Plan](https://melbourne-pulse-au.vercel.app/plan) turns the
+  forecast and the chance of rain into an answer: the best two hours for the
+  busiest dry spell, the most foot traffic, or the quietest time, for the whole
+  CBD or any one sensor.
+
+## Results
+
+- **The forecast beats the simple rule.** On 132,696 sensor-hours the model
+  had never seen (8 weeks, 5 Aug to 29 Sep 2026), its average error was 53.2
+  pedestrian counts an hour, against 61.7 for "typical" (the median of the same
+  hour over the last 8 weeks). That is 14% more accurate.
+- **The weather forecast helps, most of all when it rains.** In rainy hours the
+  error was 69.2, against 81.7 for the same model without weather.
+- **The gain is from the weather, not from extra inputs.** As a placebo, the
+  model was retrained with the weather moved 14 days, so every hour got the
+  wrong forecast. It did no better than the model without weather (55.7
+  overall, 81.5 in rainy hours).
+- **Rain means about 18.5% fewer pedestrian counts.** Measured on 2 Oct 2026
+  over the 12 months from 1 Oct 2025 to 30 Sep 2026: −18.5% in a wet hour (95%
+  interval −21.8% to −14.9%, 868 wet hours), and −29.4% in heavy rain. 99 of
+  102 sensors have a reliable estimate of their own. This is recalculated
+  monthly; the [Plan page](https://melbourne-pulse-au.vercel.app/plan?evidence=1)
+  shows the current figures. It explains the forecast and is never applied to it.
+
+How each number was tested: [model/REPORT.md](model/REPORT.md).
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph Sources
+    COM["City of Melbourne Open Data<br/>pedestrian counts, parking bays, hourly history"]
+    OM["Open-Meteo<br/>weather forecast, observed rain"]
+  end
+  CRON["cron-job.org<br/>hourly and daily triggers"] --> GHA
+  COM --> GHA
+  OM --> GHA
+  subgraph GHA["GitHub Actions (tests run before every write)"]
+    H["hourly: counts, parking, weather, one-line summary"]
+    D["daily: LightGBM forecast"]
+    M["monthly: rain effect"]
+  end
+  H -. "facts only" .-> GEM["Gemini Flash<br/>writes the summary sentence"]
+  GHA --> NEON[("Neon Postgres<br/>hourly aggregates")]
+  NEON -- "read-only role" --> WEB["Next.js on Vercel<br/>/  /map  /plan  /about"]
+  H -- "revalidate" --> WEB
+```
+
+## Tech stack
+
+| Part | Built with |
+|---|---|
+| Pipeline (`pipeline/`) | Python, `requests`, `psycopg`, NumPy, pytest |
+| Model (`model/`) | Python, LightGBM, pandas, matplotlib |
+| Website (`web/`) | Next.js 16 (App Router), React 19, TypeScript, Tailwind, Recharts, Leaflet + MapLibre GL |
+| Database | Neon Postgres (serverless), a read-only role for the website |
+| Scheduling | GitHub Actions, started by cron-job.org |
+| Data | City of Melbourne Open Data (CC BY), Open-Meteo (CC BY 4.0), OpenFreeMap basemap |
+
+## Runs on $0
+
+Everything stays inside free tiers, with room to spare:
+
+| Service | Used | Free limit |
+|---|---|---|
+| Neon storage | about 40 MB at 90 days | 0.5 GB |
+| Neon compute | about 18 CU-hours a month | 100 CU-hours |
+| GitHub Actions | about 730 minutes a month | unlimited on a public repo |
+| Vercel, cron-job.org, Open-Meteo, Gemini Flash | a few dozen requests an hour at most | well under each free limit |
+
+The working is in [Free-tier budget](#free-tier-budget) below.
+
+## Honest limitations
+
+- **Sensors count passes, not people.** One person walking past three sensors
+  is counted three times, so the numbers are pedestrian counts, not visitors.
+  They are useful for comparing hours and places, not for headcounts.
+- **One test window.** The model was scored on one 8-week window, which had 125
+  wet hours. The rainy-hour results rest on a small number of rainy spells and
+  should be re-checked as more rain is recorded.
+- **Unknown events are invisible.** The model knows public and school holidays
+  but not concerts, protests or match days.
+- **Free tiers have conditions.** Open-Meteo's free API and Vercel's Hobby plan
+  are for non-commercial use, and Gemini's free tier has low rate limits. A
+  commercial version would need paid plans.
+
+## More
+
+- [model/REPORT.md](model/REPORT.md): how the forecast was tested, with the chart and every comparison.
+- [docs/plan-api.md](docs/plan-api.md): the JSON behind the Plan page, with real examples.
+- [docs/MAINTENANCE.md](docs/MAINTENANCE.md): yearly upkeep, where every setting lives, what to check when something looks stale.
+- [docs/data.md](docs/data.md): the data sources, field by field, and their quirks.
+- [docs/scheduling.md](docs/scheduling.md): why an outside cron service starts the jobs.
 
 ## How it works
 
-```
-City of Melbourne Open Data ──► GitHub Actions (hourly) ────────► Neon Postgres ◄── Next.js on Vercel
-  parking bay sensors              started by cron-job.org :07   hourly aggregates    (read-only role,
-  pedestrian counts                pytest (gate)                                      ISR, revalidate
-  sensor locations                 fetch.py  → aggregates                             on demand)
-                                   summary.py → Gemini Flash
-                                   POST /api/revalidate ────────────────────────────►
-```
 
 - **`pipeline/`** (Python). `fetch.py` sums the per-minute pedestrian feed into
   hourly counts and the parking feed into CBD-wide totals, then keeps a slim
-  "latest" snapshot for the map. `summary.py` sends a few stats (never raw data)
-  to Gemini Flash for a one-sentence summary, and falls back to a template if
-  that fails. `seed_history.py` backfills 8 weeks of history once, so "busier
+  "latest" snapshot for the map. `weather_forecast.py` stores the next 48 hours
+  of Open-Meteo forecast. `summary.py` sends a few stats (never raw data) to
+  Gemini Flash for a one-sentence summary, checks every number, time and rain
+  claim in the reply against the data, and falls back to a template if anything
+  is off. `audit.py` recomputes the homepage numbers straight from the city's
+  API to check them. `seed_history.py` backfills 8 weeks of history once, so "busier
   than usual" works from day one.
 - **`model/`** (Python, LightGBM). `train.py` learns from two years of hourly
   counts plus past weather forecasts (Open-Meteo, free, no key) and writes
@@ -61,17 +156,14 @@ City of Melbourne Open Data ──► GitHub Actions (hourly) ──────
 Tested on the last 8 weeks of data, which the model never saw during training.
 Lower is better.
 
-| Method | Average error (people/hour) | Average % error |
+| Method | Average error (pedestrian counts/hour) | Average % error |
 |---|---:|---:|
 | Same hour last week | 71.5 | 31.6% |
 | Typical (8-week median, the app's baseline) | 61.7 | 25.7% |
 | LightGBM without weather | 55.3 | 23.6% |
 | **LightGBM with the weather forecast** | **53.2** | **22.3%** |
 
-LightGBM is 14% more accurate than the app's own baseline, and better in every
-daytime hour. Adding the weather forecast was tested on the same hours and
-shipped because it won: in wet hours the error drops from 81.7 to 69.2. Every
-history input is known at least a week in advance, and weather inputs are
+Every history input is known at least a week in advance, and weather inputs are
 forecasts issued a day ahead, never observed weather, so nothing leaks from
 the future. [Full report, with chart and method](model/REPORT.md).
 
@@ -93,6 +185,7 @@ measured **20 MB** (3.9% of 0.5 GB).
 | `parking_hourly` | 24 × 90 = 2,160 rows × ~100 B | 0.2 MB |
 | `latest` | 4 rows. The 6,324-bay parking payload is 575 kB of JSON but 100 kB once Postgres compresses it. Measured 216 kB after vacuum. | 0.2 MB |
 | `forecasts` | 99 sensors × 36 h, plus 2 days kept | 0.5 MB |
+| `weather_forecast`, `rain_effect` | 48 forecast hours plus 2 days kept; about 110 rain-effect rows | under 0.1 MB |
 | Postgres system catalogs | Measured size of an empty database | ~7.3 MB |
 | **Total** | | **32–41 MB** |
 
@@ -110,6 +203,7 @@ the minimum size, **0.25 CU**.
 |---|---|---:|
 | Hourly ingest | fetch and summary take about 5 s of DB work, plus the page warm-up a few seconds later, so about 5.5 min awake per run. 24 × 30.4 = 730 runs × 5.5/60 h × 0.25 CU | 16.7 |
 | Daily forecast | 30.4 runs × ~6/60 h × 0.25 CU | 0.8 |
+| Monthly rain effect | 1 run × ~6/60 h × 0.25 CU | ~0 |
 | Website visitors | Pages are cached (`revalidate = 3600`) and re-rendered by the hourly Action while the DB is already awake. Visitors hit the cache. | ~0 |
 | **Typical total** | | **~17.5** |
 | Worst case: GitHub delays the hourly cron past the page's 1-hour cache and a visitor arrives in that gap, every hour | + one extra 5-minute wake per hour = +16.7 | **~34** |
@@ -123,7 +217,9 @@ call.
 - **GitHub Actions:** free and unlimited on a public repo. The hourly job takes
   about 1 min, so about 730 min/month, plus a few seconds an hour for the backup
   schedule's check (which never touches the database).
-- **cron-job.org:** free; one request an hour.
+- **cron-job.org:** free; one request an hour, plus one a day for the forecast.
+- **Open-Meteo:** free, no key. About 25 forecast requests a day and one
+  history request a month, against a free limit of 10,000 a day.
 - **Gemini Flash (free API):** 24 short calls a day, well under the free daily
   request limit. Pinned to `gemini-3.8-flash`, falling back to
   `gemini-3.5-flash`. If both fail, or a reply's numbers don't match the real
@@ -186,6 +282,7 @@ cd pipeline
 ../.venv/bin/python -m pytest -q          # unit tests on saved real API responses
 ../.venv/bin/python fetch.py --dry-run    # live feeds, no database
 ../.venv/bin/python summary.py --dry-run
+../.venv/bin/python audit.py                # needs DATABASE_URL; checks the homepage numbers against the city's API
 ../.venv/bin/python seed_history.py --dry-run
 
 # model
@@ -202,6 +299,7 @@ cd ../web && cp .env.example .env.local && npm install && npm run dev
 ## Data
 
 City of Melbourne Open Data, CC BY. See [docs/data.md](docs/data.md).
+Weather: [Open-Meteo](https://open-meteo.com), CC BY 4.0 (forecast and historical weather APIs).
 Basemap: [OpenFreeMap](https://openfreemap.org), © [OpenMapTiles](https://www.openmaptiles.org/),
 data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors.
 

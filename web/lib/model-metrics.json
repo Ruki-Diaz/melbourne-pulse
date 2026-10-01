@@ -28,5 +28,10 @@
     "wetMae": 81.7
   },
   "usesWeather": true,
+  "placebo": {
+    "shiftDays": 14,
+    "mae": 55.7,
+    "wetMae": 81.5
+  },
   "improvementPct": 14
 }
