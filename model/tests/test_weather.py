@@ -202,3 +202,12 @@ def test_a_model_without_weather_never_calls_open_meteo(unreachable, capsys):
     meta = {"columns": features.BASE + features.EXTRA}
     assert predict.choose_model(meta, hist, NOW) == ("model.txt.gz", meta["columns"], None)
     assert capsys.readouterr().out == ""
+
+
+def test_placebo_attaches_every_forecast_to_the_wrong_fortnight(open_meteo):
+    import train
+
+    w = weather.history(date(2026, 9, 28), date(2026, 10, 8))
+    shifted = train.placebo_weather(w)
+    assert (shifted["date"] - w["date"]).eq(pd.Timedelta(days=14)).all()
+    pd.testing.assert_frame_equal(shifted.drop(columns="date"), w.drop(columns="date"))

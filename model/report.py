@@ -188,6 +188,25 @@ def weather_section(attempts: list[dict], decision: dict) -> str:
             f"overall average very little, and the forecasts are too unreliable to make up for it: {missed}."
         )
 
+    placebo = decision.get("placebo")
+    placebo_text = (
+        f"""- **Placebo.** The model was trained once more with the weather moved
+  {placebo['shift_days']} days, so every hour got the wrong forecast. That scored
+  {placebo['mae']:.1f} overall and {placebo['wet_mae']:.1f} in wet hours, no better than BASE
+  ({c['mae']:.1f} and {c['wet_mae']:.1f}). So the gain comes from the real weather, not from the
+  model simply having more inputs.
+"""
+        if placebo
+        else ""
+    )
+    checks = f"""**Checks and limits of this result**
+
+{placebo_text}- **Few rainy hours.** The test weeks contain only {wet_hours} wet hours, all from one
+  late-winter and early-spring stretch. The wet-hours figures rest on a small
+  number of rainy spells, so they are less certain than the overall figures and
+  should be re-checked as more rain is recorded.
+"""
+
     return f"""## Does weather help?
 
 A separate study of the same sensors (*Rain or Shine*, 2025) found about 18%
@@ -209,6 +228,7 @@ freshest forecast had at least 0.2 mm of rain.*
 
 {why}
 
+{checks}
 The two weather rows differ only in how old the forecast is. Observed weather
 was never used, because the model won't have it when it runs. Open-Meteo's
 Historical Forecast API joins up the first few hours of every past forecast

@@ -56,7 +56,12 @@
   "ship_weather": true,
   "test_wet_hours": 125,
   "test_wet_hours_also_wet_day1": 65,
-  "test_hours": 1344
+  "test_hours": 1344,
+  "placebo": {
+   "shift_days": 14,
+   "mae": 55.7486874712118,
+   "wet_mae": 81.54887460086745
+  }
  },
  "attempts": [
   {

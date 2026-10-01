@@ -54,6 +54,18 @@ freshest forecast had at least 0.2 mm of rain.*
 
 Why: rain does thin the crowds and the model picks that up, but the gain is limited by the weather forecast itself: of the 125 wet hours in the test weeks, the forecast made a day earlier called only 65 wet.
 
+**Checks and limits of this result**
+
+- **Placebo.** The model was trained once more with the weather moved
+  14 days, so every hour got the wrong forecast. That scored
+  55.7 overall and 81.5 in wet hours, no better than BASE
+  (55.3 and 81.7). So the gain comes from the real weather, not from the
+  model simply having more inputs.
+- **Few rainy hours.** The test weeks contain only 125 wet hours, all from one
+  late-winter and early-spring stretch. The wet-hours figures rest on a small
+  number of rainy spells, so they are less certain than the overall figures and
+  should be re-checked as more rain is recorded.
+
 The two weather rows differ only in how old the forecast is. Observed weather
 was never used, because the model won't have it when it runs. Open-Meteo's
 Historical Forecast API joins up the first few hours of every past forecast

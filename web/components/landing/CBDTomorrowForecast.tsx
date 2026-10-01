@@ -15,6 +15,9 @@ import { motion } from "framer-motion";
 import { Sparkles, Brain, ArrowUpRight, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 
+// The model's test results, copied from model/metrics.json at build time (scripts/copy-model-metrics.mjs).
+import metrics from "@/lib/model-metrics.json";
+
 export interface CBDHourlyForecastPoint {
   hourLabel: string;
   hourIso: string;
@@ -57,7 +60,7 @@ export function CBDTomorrowForecast({ data, calloutText }: CBDTomorrowForecastPr
         >
           <CheckCircle2 className="w-4 h-4 text-purple-400 shrink-0" />
           <span className="truncate">
-            10% more accurate than the 8-week typical · tested on 132,696 unseen sensor-hours
+            {metrics.improvementPct}% more accurate than the 8-week typical · tested on {metrics.test.sensorHours.toLocaleString("en-AU")} unseen sensor-hours
           </span>
           <ArrowUpRight className="w-3.5 h-3.5 text-purple-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform shrink-0" />
         </Link>

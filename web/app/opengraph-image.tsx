@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import { getAllLatest } from "@/lib/db";
 import { getFreshness } from "@/lib/freshness";
+import metrics from "@/lib/model-metrics.json";
 
 export const runtime = "nodejs";
 export const revalidate = 3600;
@@ -164,7 +165,7 @@ export default async function Image() {
               {totalPedestrians === null ? "—" : totalPedestrians.toLocaleString()}
             </span>
             <span style={{ fontSize: "12px", color: "#64748B" }}>
-              {totalPedestrians === null ? "waiting for data" : "people in the latest hour"}
+              {totalPedestrians === null ? "waiting for data" : "pedestrian counts in the latest hour"}
             </span>
           </div>
 
@@ -207,7 +208,7 @@ export default async function Image() {
             <span style={{ fontSize: "38px", fontWeight: 800, color: "#A855F7", fontFamily: "monospace" }}>
               LightGBM
             </span>
-            <span style={{ fontSize: "12px", color: "#64748B" }}>10% lower MAE</span>
+            <span style={{ fontSize: "12px", color: "#64748B" }}>{`${metrics.improvementPct}% lower MAE`}</span>
           </div>
         </div>
       </div>

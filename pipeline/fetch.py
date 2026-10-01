@@ -108,7 +108,7 @@ def report(feeds: Feeds) -> None:
             flag = "partial" if rows[0].is_partial else "complete"
             print(
                 f"[pedestrian] {local(hour):%a %d %b %H:00 %Z} ({flag}): "
-                f"{len(rows)} sensors, {sum(r.count for r in rows):,} people"
+                f"{len(rows)} sensors, {sum(r.count for r in rows):,} pedestrian counts"
             )
     if feeds.bays:
         stats = aggregate.parking_hourly(feeds.bays)

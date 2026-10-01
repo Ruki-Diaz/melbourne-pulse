@@ -1,6 +1,8 @@
 import pytest
 
-from summary import MAX_WORDS, build_stats, clean_sentence, percentages_ok, prompt_facts, template, words
+from summary import (
+    MAX_WORDS, PROMPT, build_stats, clean_sentence, percentages_ok, prompt_facts, template, words, wording_ok,
+)
 
 PEDESTRIAN = {
     "hour": "2026-10-01T03:00:00+00:00",  # 1pm AEST, Thursday
@@ -66,6 +68,19 @@ def test_prompt_facts_are_pre_worded():
     assert facts["compared_with_usual"] == "17% busier than usual"
     assert facts["parking"] == "40% of parking bays are free"
     assert facts["time"] == "the hour from 1pm on Thursday"
+    assert facts["pedestrian_counts"] == "2,400 across 3 sensors"
+
+
+def test_wording_is_pedestrian_counts_never_people():
+    assert wording_ok("Foot traffic is 17% above usual, with 2,400 pedestrian counts this hour.")
+    assert not wording_ok("About 2,400 people are in the CBD right now.")
+    assert not wording_ok("People are out in force this afternoon.")
+    assert '"pedestrian counts"' in PROMPT and "people_counted" not in str(prompt_facts(build_stats(PEDESTRIAN, SENSORS, PARKING)))
+    # The fallback sentence follows the same rule, including when there is no typical to compare with.
+    no_typical = {**build_stats(PEDESTRIAN, SENSORS, PARKING), "vs_typical_pct": None}
+    for stats in (build_stats(PEDESTRIAN, SENSORS, PARKING), no_typical):
+        assert wording_ok(template(stats))
+    assert "2,400 pedestrian counts" in template(no_typical)
 
 
 def test_percentages_must_match_the_real_stats():

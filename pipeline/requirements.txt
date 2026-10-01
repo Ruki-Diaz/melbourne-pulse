@@ -1,2 +1,5 @@
 requests>=2.32,<3
 psycopg[binary]>=3.2,<4
+# rain_effect.py (monthly)
+numpy>=2,<3
+holidays>=0.105
