@@ -56,7 +56,7 @@ export function BuiltBySection() {
 
           {/* LinkedIn profile */}
           <a
-            href="https://www.linkedin.com/in/rukshan-dias-a088921a6/?isSelfProfile=true"
+            href="https://www.linkedin.com/in/rukshan-dias-a088921a6/"
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50 hover:border-blue-400 text-slate-300 hover:text-white text-xs font-medium transition-all duration-200 hover:scale-[1.03]"
