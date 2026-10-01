@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import React from "react";
 import type { MapSensorItem, MapParkingItem } from "./LiveLeafletMap";
+import type { SeriesPoint } from "@/lib/series";
 
 const DynamicLeafletMap = dynamic(
   () => import("./LiveLeafletMap").then((mod) => mod.LiveLeafletMap),
@@ -28,10 +29,9 @@ interface MapWrapperProps {
   sensors: MapSensorItem[];
   parking: MapParkingItem[];
   summaryText?: string;
-  updatedMinutesAgo: number;
-  isStale: boolean;
-  forecastsBySensor: Record<number, Array<{ hourLabel: string; forecast: number; typical: number }>>;
-  historyBySensor: Record<number, Array<{ hourLabel: string; actual: number }>>;
+  updatedAt: string | null;
+  renderedAt: string;
+  seriesBySensor: Record<number, SeriesPoint[]>;
 }
 
 export function MapWrapper(props: MapWrapperProps) {

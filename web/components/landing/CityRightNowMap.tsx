@@ -11,14 +11,15 @@ export interface SensorPoint {
   lat: number;
   lon: number;
   count: number;
-  typical: number;
+  /** null = no 8-week baseline yet (drawn grey, never as busier/quieter). */
+  typical: number | null;
 }
 
 export interface ProjectedSensorPoint extends SensorPoint {
   x: number;
   y: number;
-  delta: number;
-  status: "busier" | "quieter" | "usual";
+  delta: number | null;
+  status: "busier" | "quieter" | "usual" | "unknown";
   radius: number;
 }
 
@@ -62,10 +63,10 @@ export function CityRightNowMap({ sensors }: CityRightNowMapProps) {
       const x = padding + ((s.lon - minLon) / (maxLon - minLon)) * (viewBoxWidth - padding * 2);
       const y = padding + ((maxLat - s.lat) / (maxLat - minLat)) * (viewBoxHeight - padding * 2);
 
-      const delta = s.typical > 0 ? ((s.count - s.typical) / s.typical) * 100 : 0;
-      let status: "busier" | "quieter" | "usual" = "usual";
-      if (delta > 10) status = "busier";
-      else if (delta < -10) status = "quieter";
+      const delta = s.typical && s.typical > 0 ? ((s.count - s.typical) / s.typical) * 100 : null;
+      let status: ProjectedSensorPoint["status"] = delta === null ? "unknown" : "usual";
+      if (delta !== null && delta > 10) status = "busier";
+      else if (delta !== null && delta < -10) status = "quieter";
 
       const radius = Math.max(3.5, Math.min(14, 4 + Math.sqrt(s.count) * 0.22));
 
@@ -101,7 +102,7 @@ export function CityRightNowMap({ sensors }: CityRightNowMapProps) {
         </div>
 
         {/* Legend */}
-        <div className="flex items-center gap-4 bg-[#0d1424]/90 border border-white/10 px-4 py-2 rounded-xl backdrop-blur-md text-xs font-medium text-slate-300">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 bg-[#0d1424]/90 border border-white/10 px-4 py-2 rounded-xl backdrop-blur-md text-xs font-medium text-slate-300">
           <div className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-full bg-teal-400 shadow-[0_0_8px_rgba(0,229,199,0.8)]" />
             <span>Busier (&gt;+10%)</span>
@@ -113,6 +114,10 @@ export function CityRightNowMap({ sensors }: CityRightNowMapProps) {
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(47,107,255,0.8)]" />
             <span>Quieter (&lt;-10%)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-slate-600" />
+            <span>No baseline</span>
           </div>
         </div>
       </div>
@@ -127,6 +132,11 @@ export function CityRightNowMap({ sensors }: CityRightNowMapProps) {
 
         {/* SVG Visualization */}
         <div className="relative w-full aspect-[4/3] sm:aspect-[16/10] max-h-[560px]">
+          {projectedSensors.length === 0 && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center text-sm text-slate-400">
+              Waiting for the next update
+            </div>
+          )}
           <svg
             viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`}
             className="w-full h-full"
@@ -157,7 +167,7 @@ export function CityRightNowMap({ sensors }: CityRightNowMapProps) {
             {projectedSensors.map((s) => {
               const isTeal = s.status === "busier";
               const isBlue = s.status === "quieter";
-              const color = isTeal ? "#00E5C7" : isBlue ? "#2F6BFF" : "#94A3B8";
+              const color = isTeal ? "#00E5C7" : isBlue ? "#2F6BFF" : s.status === "unknown" ? "#475569" : "#94A3B8";
 
               return (
                 <g
@@ -225,19 +235,23 @@ export function CityRightNowMap({ sensors }: CityRightNowMapProps) {
                 <span className="text-slate-400">pedestrians/hr</span>
               </div>
               <div className="mt-1 pt-1.5 border-t border-white/10 flex items-center justify-between text-[11px]">
-                <span className="text-slate-400">Typical: {hoveredSensor.typical.toLocaleString()}</span>
-                <span
-                  className={`font-semibold font-mono ${
-                    hoveredSensor.delta > 0
-                      ? "text-teal-400"
-                      : hoveredSensor.delta < 0
-                      ? "text-blue-400"
-                      : "text-slate-300"
-                  }`}
-                >
-                  {hoveredSensor.delta > 0 ? `+${hoveredSensor.delta.toFixed(0)}%` : `${hoveredSensor.delta.toFixed(0)}%`}
-                  {" vs usual"}
+                <span className="text-slate-400">
+                  Typical: {hoveredSensor.typical === null ? "no baseline yet" : hoveredSensor.typical.toLocaleString()}
                 </span>
+                {hoveredSensor.delta !== null && (
+                  <span
+                    className={`font-semibold font-mono ${
+                      hoveredSensor.delta > 0
+                        ? "text-teal-400"
+                        : hoveredSensor.delta < 0
+                        ? "text-blue-400"
+                        : "text-slate-300"
+                    }`}
+                  >
+                    {hoveredSensor.delta > 0 ? `+${hoveredSensor.delta.toFixed(0)}%` : `${hoveredSensor.delta.toFixed(0)}%`}
+                    {" vs usual"}
+                  </span>
+                )}
               </div>
             </motion.div>
           )}
@@ -246,7 +260,9 @@ export function CityRightNowMap({ sensors }: CityRightNowMapProps) {
         {/* Action Link to Full Leaflet Map */}
         <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
           <span className="text-xs text-slate-400">
-            Plotting {sensors.length} live pedestrian counting stations in Melbourne CBD.
+            {sensors.length
+              ? `Plotting ${sensors.length} pedestrian counting stations in Melbourne CBD.`
+              : "Waiting for the next update."}
           </span>
           <Link
             href="/map"

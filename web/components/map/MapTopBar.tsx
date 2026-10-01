@@ -4,10 +4,13 @@ import React from "react";
 import Link from "next/link";
 import { ArrowLeft, AlertTriangle, Sparkles, Layers } from "lucide-react";
 
+import { FreshnessBadge } from "@/components/ui/FreshnessBadge";
+import { useFreshness } from "@/lib/useFreshness";
+
 interface MapTopBarProps {
   summaryText?: string;
-  updatedMinutesAgo: number;
-  isStale: boolean;
+  updatedAt: string | null;
+  renderedAt: string;
   parkingVisible: boolean;
   onToggleParking: () => void;
   parkingStats: { free: number; total: number; pct: number };
@@ -15,20 +18,23 @@ interface MapTopBarProps {
 
 export function MapTopBar({
   summaryText,
-  updatedMinutesAgo,
-  isStale,
+  updatedAt,
+  renderedAt,
   parkingVisible,
   onToggleParking,
   parkingStats,
 }: MapTopBarProps) {
+  const freshness = useFreshness(updatedAt, renderedAt);
   return (
     <div className="absolute top-4 left-4 right-4 z-[1000] pointer-events-none flex flex-col gap-2 max-w-5xl mx-auto">
-      {/* Amber warning if data > 3 hours old */}
-      {isStale && (
+      {/* Amber notice once data is 2 h old (same rule as the home page and OG image) */}
+      {freshness.state !== "live" && (
         <div className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-200 text-xs sm:text-sm backdrop-blur-xl shadow-lg">
           <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
           <span>
-            <strong>Data Delayed:</strong> Ingest pipeline is running behind; data shown was updated {updatedMinutesAgo} minutes ago.
+            {freshness.state === "stale"
+              ? `${freshness.label}. The hourly update is running late, so these counts aren't live.`
+              : "Waiting for the next update."}
           </span>
         </div>
       )}
@@ -45,21 +51,13 @@ export function MapTopBar({
             <span>Home</span>
           </Link>
 
-          <div className="hidden sm:flex items-center gap-2">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-teal-400"></span>
-            </span>
-            <span className="text-xs font-mono text-teal-400 font-semibold">
-              Updated {updatedMinutesAgo}m ago
-            </span>
-          </div>
+          <FreshnessBadge freshness={freshness} className="hidden sm:inline-flex !text-xs !py-1" />
         </div>
 
         {/* Center: Live Summary Sentence */}
         <div className="hidden lg:flex items-center gap-2 text-xs text-slate-300 max-w-lg truncate">
           <Sparkles className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-          <span className="truncate">{summaryText || "Live Melbourne CBD pedestrian and parking sensor telemetry."}</span>
+          <span className="truncate">{summaryText || "Waiting for the next update."}</span>
         </div>
 
         {/* Right: Parking Layer Toggle */}
@@ -74,7 +72,9 @@ export function MapTopBar({
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
-            <span>Parking ({parkingStats.free} free / {parkingStats.pct}%)</span>
+            <span>
+              {parkingStats.total > 0 ? `Parking (${parkingStats.free} free / ${parkingStats.pct}%)` : "Parking (no data yet)"}
+            </span>
             <span
               className={`w-2 h-2 rounded-full ${
                 parkingVisible ? "bg-emerald-400" : "bg-slate-600"

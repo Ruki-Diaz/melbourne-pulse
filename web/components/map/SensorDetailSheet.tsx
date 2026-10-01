@@ -15,6 +15,8 @@ import {
 } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
 
+import type { SeriesPoint } from "@/lib/series";
+
 export interface SensorDetailData {
   location_id: number;
   name: string;
@@ -22,14 +24,11 @@ export interface SensorDetailData {
   lon: number;
   indoor: boolean;
   count: number;
-  typical: number;
-  pctDelta: number;
-  series24h: Array<{
-    hourLabel: string;
-    actual?: number | null;
-    forecast?: number | null;
-    typical: number;
-  }>;
+  /** null = no 8-week baseline yet. */
+  typical: number | null;
+  pctDelta: number | null;
+  /** Last 24 h actuals + next 24 h forecasts, keyed by real hour. */
+  series: SeriesPoint[];
 }
 
 interface SensorDetailSheetProps {
@@ -40,7 +39,8 @@ interface SensorDetailSheetProps {
 export function SensorDetailSheet({ sensor, onClose }: SensorDetailSheetProps) {
   if (!sensor) return null;
 
-  const isBusier = sensor.pctDelta >= 0;
+  const hasDelta = sensor.pctDelta !== null;
+  const isBusier = hasDelta && (sensor.pctDelta as number) >= 0;
 
   return (
     <AnimatePresence>
@@ -83,7 +83,7 @@ export function SensorDetailSheet({ sensor, onClose }: SensorDetailSheetProps) {
           <div className="grid grid-cols-2 gap-3 mb-6">
             <div className="p-4 rounded-xl bg-[#0d1424] border border-white/10">
               <span className="text-[11px] text-slate-400 uppercase tracking-wider font-medium block mb-1">
-                Current Volume
+                Latest hour
               </span>
               <div className="text-2xl font-bold text-white font-mono">
                 {sensor.count.toLocaleString()}
@@ -95,16 +95,20 @@ export function SensorDetailSheet({ sensor, onClose }: SensorDetailSheetProps) {
               <span className="text-[11px] text-slate-400 uppercase tracking-wider font-medium block mb-1">
                 vs 8-wk Typical
               </span>
-              <div
-                className={`text-2xl font-bold font-mono flex items-center gap-1 ${
-                  isBusier ? "text-teal-400" : "text-blue-400"
-                }`}
-              >
-                {isBusier ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
-                {isBusier ? `+${sensor.pctDelta.toFixed(0)}%` : `${sensor.pctDelta.toFixed(0)}%`}
-              </div>
+              {hasDelta ? (
+                <div
+                  className={`text-2xl font-bold font-mono flex items-center gap-1 ${
+                    isBusier ? "text-teal-400" : "text-blue-400"
+                  }`}
+                >
+                  {isBusier ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+                  {isBusier ? `+${(sensor.pctDelta as number).toFixed(0)}%` : `${(sensor.pctDelta as number).toFixed(0)}%`}
+                </div>
+              ) : (
+                <div className="text-2xl font-bold font-mono text-slate-500">—</div>
+              )}
               <span className="text-[10px] text-slate-400">
-                typical: {sensor.typical.toLocaleString()}
+                typical: {sensor.typical === null ? "no baseline yet" : sensor.typical.toLocaleString()}
               </span>
             </div>
           </div>
@@ -114,7 +118,7 @@ export function SensorDetailSheet({ sensor, onClose }: SensorDetailSheetProps) {
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-teal-400" />
-                24-Hour Comparison
+                Last 24 h and next 24 h
               </span>
               <span className="text-[10px] font-mono text-purple-400 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-500/30">
                 Actual · Forecast · Baseline
@@ -122,14 +126,19 @@ export function SensorDetailSheet({ sensor, onClose }: SensorDetailSheetProps) {
             </div>
 
             <div className="h-56 w-full mt-2">
+              {sensor.series.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-xs text-slate-500">
+                  Waiting for the next update
+                </div>
+              ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={sensor.series24h} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                <ComposedChart data={sensor.series} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ffffff08" vertical={false} />
                   <XAxis
                     dataKey="hourLabel"
                     stroke="#64748B"
                     tick={{ fontSize: 9, fill: "#94A3B8" }}
-                    interval={3}
+                    interval={5}
                     tickLine={false}
                   />
                   <YAxis
@@ -197,6 +206,7 @@ export function SensorDetailSheet({ sensor, onClose }: SensorDetailSheetProps) {
                   />
                 </ComposedChart>
               </ResponsiveContainer>
+              )}
             </div>
           </div>
         </div>

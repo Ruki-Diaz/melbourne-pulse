@@ -4,13 +4,27 @@ import React, { useEffect, useRef, useState } from "react";
 import { Users, Car, Flame, TrendingUp } from "lucide-react";
 import { motion, useInView, useReducedMotion } from "framer-motion";
 
+import { melbourneHourLabel } from "@/lib/freshness";
+import { useFreshness } from "@/lib/useFreshness";
+
 interface StatStripProps {
-  totalPedestrians: number;
-  pctParkingFree: number;
+  /** null = no data yet: the card shows an empty state, never a made-up number. */
+  totalPedestrians: number | null;
+  pctParkingFree: number | null;
   busiestSpot: {
     name: string;
     count: number;
   } | null;
+  /** The hour the pedestrian counts belong to (ISO). */
+  hourIso: string | null;
+  updatedAt: string | null;
+  renderedAt: string;
+}
+
+const WAITING = "Waiting for the next update";
+
+function Empty() {
+  return <span className="text-slate-500" aria-label="No data">—</span>;
 }
 
 function AnimatedCounter({ value, suffix = "", duration = 1.2 }: { value: number; suffix?: string; duration?: number }) {
@@ -57,7 +71,16 @@ function AnimatedCounter({ value, suffix = "", duration = 1.2 }: { value: number
   );
 }
 
-export function StatStrip({ totalPedestrians, pctParkingFree, busiestSpot }: StatStripProps) {
+export function StatStrip({
+  totalPedestrians,
+  pctParkingFree,
+  busiestSpot,
+  hourIso,
+  updatedAt,
+  renderedAt,
+}: StatStripProps) {
+  const live = useFreshness(updatedAt, renderedAt).state === "live";
+  const hour = hourIso ? melbourneHourLabel(hourIso) : null;
   return (
     <div className="relative z-20 -mt-10 md:-mt-14 max-w-6xl mx-auto px-4 sm:px-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -71,18 +94,18 @@ export function StatStrip({ totalPedestrians, pctParkingFree, busiestSpot }: Sta
         >
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs uppercase tracking-wider font-semibold text-slate-400">
-              CBD Pedestrians Now
+              {live ? "CBD pedestrians now" : totalPedestrians === null ? "CBD pedestrians" : "CBD pedestrians (last update)"}
             </span>
             <div className="p-2 rounded-lg bg-teal-500/10 text-teal-400 border border-teal-500/20">
               <Users className="w-4 h-4" />
             </div>
           </div>
           <div className="text-3xl sm:text-4xl text-white font-['Space_Grotesk',sans-serif] mb-1">
-            <AnimatedCounter value={totalPedestrians} />
+            {totalPedestrians === null ? <Empty /> : <AnimatedCounter value={totalPedestrians} />}
           </div>
           <p className="text-xs text-slate-400 flex items-center gap-1.5">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-teal-400" />
-            Live pedestrians walking in the CBD this hour
+            {totalPedestrians === null || !hour ? WAITING : `Counted in the hour from ${hour}`}
           </p>
         </motion.div>
 
@@ -103,11 +126,11 @@ export function StatStrip({ totalPedestrians, pctParkingFree, busiestSpot }: Sta
             </div>
           </div>
           <div className="text-3xl sm:text-4xl text-white font-['Space_Grotesk',sans-serif] mb-1">
-            <AnimatedCounter value={pctParkingFree} suffix="%" />
+            {pctParkingFree === null ? <Empty /> : <AnimatedCounter value={pctParkingFree} suffix="%" />}
           </div>
           <p className="text-xs text-slate-400 flex items-center gap-1.5">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            Non-stale in-ground sensors only
+            {pctParkingFree === null ? WAITING : "Bays whose sensor reported in the last 24 h"}
           </p>
         </motion.div>
 
@@ -121,14 +144,14 @@ export function StatStrip({ totalPedestrians, pctParkingFree, busiestSpot }: Sta
         >
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs uppercase tracking-wider font-semibold text-slate-400">
-              Busiest Spot Right Now
+              {live ? "Busiest spot right now" : busiestSpot === null ? "Busiest spot" : "Busiest spot (last update)"}
             </span>
             <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
               <Flame className="w-4 h-4" />
             </div>
           </div>
           <div className="text-xl sm:text-2xl font-bold text-white tracking-tight truncate mb-1">
-            {busiestSpot ? busiestSpot.name : "Melbourne Central"}
+            {busiestSpot ? busiestSpot.name : <Empty />}
           </div>
           <div className="text-xs text-amber-400 font-mono flex items-center gap-1.5">
             <TrendingUp className="w-3.5 h-3.5" />
@@ -137,7 +160,7 @@ export function StatStrip({ totalPedestrians, pctParkingFree, busiestSpot }: Sta
                 <AnimatedCounter value={busiestSpot.count} /> people/hour
               </>
             ) : (
-              "Calculating peak..."
+              WAITING
             )}
           </div>
         </motion.div>

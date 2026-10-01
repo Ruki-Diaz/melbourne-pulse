@@ -19,7 +19,8 @@ export interface CBDHourlyForecastPoint {
   hourLabel: string;
   hourIso: string;
   predicted: number;
-  typical: number;
+  /** null when some sensors in that hour have no baseline, so the sum would understate it. */
+  typical: number | null;
 }
 
 interface CBDTomorrowForecastProps {
@@ -28,35 +29,8 @@ interface CBDTomorrowForecastProps {
 }
 
 export function CBDTomorrowForecast({ data, calloutText }: CBDTomorrowForecastProps) {
-  // Compute fallback callout if not provided
-  const peakCallout = React.useMemo(() => {
-    if (calloutText) return calloutText;
-    if (!data || data.length === 0) {
-      return "Next 24h CBD prediction: Expected peak around 5pm with steady pedestrian density.";
-    }
-
-    let maxPred = -1;
-    let peakPoint: CBDHourlyForecastPoint | null = null;
-    data.forEach((p) => {
-      if (p.predicted > maxPred) {
-        maxPred = p.predicted;
-        peakPoint = p;
-      }
-    });
-
-    if (peakPoint) {
-      const diffPct =
-        (peakPoint as CBDHourlyForecastPoint).typical > 0
-          ? (((peakPoint as CBDHourlyForecastPoint).predicted - (peakPoint as CBDHourlyForecastPoint).typical) /
-              (peakPoint as CBDHourlyForecastPoint).typical) *
-            100
-          : 0;
-      const sign = diffPct >= 0 ? "+" : "";
-      return `Peak predicted at ${(peakPoint as CBDHourlyForecastPoint).hourLabel}, ${sign}${diffPct.toFixed(0)}% relative to the 8-week typical.`;
-    }
-
-    return "Pedestrian activity expected to track typical diurnal patterns.";
-  }, [data, calloutText]);
+  const hasData = data && data.length > 0;
+  const peakCallout = hasData ? calloutText : undefined;
 
   return (
     <section className="py-20 max-w-6xl mx-auto px-4 sm:px-6">
@@ -67,7 +41,7 @@ export function CBDTomorrowForecast({ data, calloutText }: CBDTomorrowForecastPr
             <span>Machine Learning Forecast</span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-bold text-white font-['Space_Grotesk',sans-serif]">
-            Tomorrow, Predicted
+            The Next 24 Hours, Predicted
           </h2>
           <p className="text-sm text-slate-400 mt-1 max-w-xl">
             CBD-wide hourly foot traffic for the next 24 hours produced by our LightGBM model versus the 8-week historical median.
@@ -97,15 +71,21 @@ export function CBDTomorrowForecast({ data, calloutText }: CBDTomorrowForecastPr
         transition={{ duration: 0.5 }}
         className="p-6 sm:p-8 rounded-2xl bg-gradient-to-b from-[#0d1424]/90 to-[#070b14]/95 border border-white/10 backdrop-blur-xl shadow-2xl"
       >
-        {/* Plain English AI / Calculated Callout Banner */}
-        <div className="mb-6 p-4 rounded-xl bg-purple-500/10 border border-purple-500/25 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-purple-500/20 text-purple-300 shrink-0">
-            <Sparkles className="w-4 h-4" />
+        {/* Plain English callout, computed from the forecast rows */}
+        {peakCallout && (
+          <div className="mb-6 p-4 rounded-xl bg-purple-500/10 border border-purple-500/25 flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-purple-500/20 text-purple-300 shrink-0">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <p className="text-sm sm:text-base font-medium text-purple-200">{peakCallout}</p>
           </div>
-          <p className="text-sm sm:text-base font-medium text-purple-200">{peakCallout}</p>
-        </div>
+        )}
 
-        {/* Recharts 24h Area/Line Chart */}
+        {!hasData ? (
+          <div className="h-72 sm:h-80 w-full flex items-center justify-center text-sm text-slate-400">
+            Waiting for the next update
+          </div>
+        ) : (
         <div className="h-72 sm:h-80 w-full mt-4">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
@@ -129,8 +109,8 @@ export function CBDTomorrowForecast({ data, calloutText }: CBDTomorrowForecastPr
                 content={({ active, payload, label }) => {
                   if (active && payload && payload.length) {
                     const pred = payload.find((p) => p.dataKey === "predicted")?.value as number;
-                    const typ = payload.find((p) => p.dataKey === "typical")?.value as number;
-                    const diff = typ > 0 ? ((pred - typ) / typ) * 100 : 0;
+                    const typ = payload.find((p) => p.dataKey === "typical")?.value as number | null | undefined;
+                    const diff = typ ? ((pred - typ) / typ) * 100 : null;
                     return (
                       <div className="rounded-xl bg-[#05080D]/95 border border-purple-500/30 p-3.5 text-xs backdrop-blur-xl shadow-xl space-y-1.5 font-mono">
                         <p className="font-bold text-slate-100 font-sans text-sm mb-1">{label}</p>
@@ -146,14 +126,16 @@ export function CBDTomorrowForecast({ data, calloutText }: CBDTomorrowForecastPr
                             <span className="w-2 h-2 rounded-full bg-blue-400" />
                             8-Week Typical:
                           </span>
-                          <span className="font-bold text-white">{typ?.toLocaleString()}</span>
+                          <span className="font-bold text-white">{typ != null ? typ.toLocaleString() : "n/a"}</span>
                         </div>
-                        <div className="pt-1.5 border-t border-white/10 text-[11px] text-slate-300 flex justify-between">
-                          <span>Model vs Typical:</span>
-                          <span className={diff >= 0 ? "text-teal-400 font-bold" : "text-blue-400 font-bold"}>
-                            {diff >= 0 ? `+${diff.toFixed(1)}%` : `${diff.toFixed(1)}%`}
-                          </span>
-                        </div>
+                        {diff !== null && (
+                          <div className="pt-1.5 border-t border-white/10 text-[11px] text-slate-300 flex justify-between">
+                            <span>Model vs Typical:</span>
+                            <span className={diff >= 0 ? "text-teal-400 font-bold" : "text-blue-400 font-bold"}>
+                              {diff >= 0 ? `+${diff.toFixed(1)}%` : `${diff.toFixed(1)}%`}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     );
                   }
@@ -188,6 +170,7 @@ export function CBDTomorrowForecast({ data, calloutText }: CBDTomorrowForecastPr
             </LineChart>
           </ResponsiveContainer>
         </div>
+        )}
       </motion.div>
     </section>
   );

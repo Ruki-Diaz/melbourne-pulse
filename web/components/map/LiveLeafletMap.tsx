@@ -5,6 +5,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { SensorDetailSheet, type SensorDetailData } from "./SensorDetailSheet";
 import { MapTopBar } from "./MapTopBar";
+import type { SeriesPoint } from "@/lib/series";
 
 export interface MapSensorItem {
   location_id: number;
@@ -13,7 +14,8 @@ export interface MapSensorItem {
   lon: number;
   indoor: boolean;
   count: number;
-  typical: number;
+  /** null = no 8-week baseline yet. */
+  typical: number | null;
 }
 
 export interface MapParkingItem {
@@ -28,20 +30,19 @@ interface LiveLeafletMapProps {
   sensors: MapSensorItem[];
   parking: MapParkingItem[];
   summaryText?: string;
-  updatedMinutesAgo: number;
-  isStale: boolean;
-  forecastsBySensor: Record<number, Array<{ hourLabel: string; forecast: number; typical: number }>>;
-  historyBySensor: Record<number, Array<{ hourLabel: string; actual: number }>>;
+  updatedAt: string | null;
+  renderedAt: string;
+  /** Last 24 h actuals + next 24 h forecasts per sensor, keyed by real hour. */
+  seriesBySensor: Record<number, SeriesPoint[]>;
 }
 
 export function LiveLeafletMap({
   sensors,
   parking,
   summaryText,
-  updatedMinutesAgo,
-  isStale,
-  forecastsBySensor,
-  historyBySensor,
+  updatedAt,
+  renderedAt,
+  seriesBySensor,
 }: LiveLeafletMapProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -105,11 +106,11 @@ export function LiveLeafletMap({
     layer.clearLayers();
 
     sensors.forEach((s) => {
-      const delta = s.typical > 0 ? ((s.count - s.typical) / s.typical) * 100 : 0;
-      let color = "#94A3B8"; // Usual
-      if (delta > 10) {
+      const delta = s.typical && s.typical > 0 ? ((s.count - s.typical) / s.typical) * 100 : null;
+      let color = delta === null ? "#475569" : "#94A3B8"; // No baseline / Usual
+      if (delta !== null && delta > 10) {
         color = "#00E5C7"; // Teal: Busier
-      } else if (delta < -10) {
+      } else if (delta !== null && delta < -10) {
         color = "#2F6BFF"; // Blue: Quieter
       }
 
@@ -126,41 +127,17 @@ export function LiveLeafletMap({
       });
 
       // Hover tooltip
-      const deltaSign = delta >= 0 ? "+" : "";
+      const deltaText =
+        delta === null ? "no baseline yet" : `${delta >= 0 ? "+" : ""}${delta.toFixed(0)}% vs usual`;
       circle.bindTooltip(
         `<strong>${s.name}</strong><br/>
          <span style="font-family:monospace;font-size:12px;">${s.count.toLocaleString()} people/hr</span>
-         <span style="color:${color};font-weight:600;font-size:11px;"> (${deltaSign}${delta.toFixed(0)}% vs usual)</span>`,
+         <span style="color:${color};font-weight:600;font-size:11px;"> (${deltaText})</span>`,
         { className: "dark-map-tooltip", direction: "top", offset: [0, -10] }
       );
 
       // On Click -> Open Detailed 24h Sensor Drawer
       circle.on("click", () => {
-        const sensorHistory = historyBySensor[s.location_id] || [];
-        const sensorForecast = forecastsBySensor[s.location_id] || [];
-
-        // Build combined 24h timeline
-        const timelineMap = new Map<string, { hourLabel: string; actual?: number | null; forecast?: number | null; typical: number }>();
-
-        sensorHistory.forEach((h) => {
-          timelineMap.set(h.hourLabel, {
-            hourLabel: h.hourLabel,
-            actual: h.actual,
-            typical: Math.round(s.typical),
-          });
-        });
-
-        sensorForecast.forEach((f) => {
-          const existing = timelineMap.get(f.hourLabel) || {
-            hourLabel: f.hourLabel,
-            typical: Math.round(f.typical || s.typical),
-          };
-          existing.forecast = Math.round(f.forecast);
-          timelineMap.set(f.hourLabel, existing);
-        });
-
-        const series24h = Array.from(timelineMap.values());
-
         setSelectedSensor({
           location_id: s.location_id,
           name: s.name,
@@ -170,15 +147,13 @@ export function LiveLeafletMap({
           count: s.count,
           typical: s.typical,
           pctDelta: delta,
-          series24h: series24h.length > 0 ? series24h : [
-            { hourLabel: "Now", actual: s.count, forecast: s.count, typical: s.typical },
-          ],
+          series: seriesBySensor[s.location_id] ?? [],
         });
       });
 
       circle.addTo(layer);
     });
-  }, [sensors, historyBySensor, forecastsBySensor]);
+  }, [sensors, seriesBySensor]);
 
   // Render Parking Bays Layer
   useEffect(() => {
@@ -222,8 +197,8 @@ export function LiveLeafletMap({
       {/* Top Map Control Bar */}
       <MapTopBar
         summaryText={summaryText}
-        updatedMinutesAgo={updatedMinutesAgo}
-        isStale={isStale}
+        updatedAt={updatedAt}
+        renderedAt={renderedAt}
         parkingVisible={parkingVisible}
         onToggleParking={() => setParkingVisible(!parkingVisible)}
         parkingStats={parkingStats}
@@ -248,6 +223,14 @@ export function LiveLeafletMap({
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-blue-500 border border-white/30" />
             <span>Pedestrians: Quieter than typical (&lt;-10%)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full bg-slate-400 border border-white/30" />
+            <span>Pedestrians: Usual (±10%)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full bg-slate-600 border border-white/30" />
+            <span>Pedestrians: No baseline yet</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-400" />
