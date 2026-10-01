@@ -4,8 +4,11 @@ How busy is Melbourne's CBD right now? A live map of pedestrian counts and free
 parking bays, with 24-hour forecasts and a one-line AI summary. Everything runs
 on free tiers, for **$0**.
 
-> Work in progress. Done: data discovery, hourly pipeline, forecast model.
-> Next: map UI, launch.
+**Forecast accuracy:** the LightGBM model's error is 10% lower than the app's
+8-week baseline (55.3 vs 61.7 people/hour) on 8 weeks of unseen data.
+[Report](model/REPORT.md)
+
+![Melbourne Pulse landing page: live summary sentence, pedestrians now, % of parking bays free, busiest spot](docs/screenshot.png)
 
 ## How it works
 
@@ -27,9 +30,10 @@ City of Melbourne Open Data ──► GitHub Actions (hourly, :07) ──► Neo
   counts and writes [REPORT.md](model/REPORT.md). `predict.py` runs daily at
   ~4am Melbourne time and writes the next 24 hours per sensor, plus the
   "typical" baseline, into `forecasts`.
-- **`web/`** (Next.js 16, App Router). Server components read Neon over HTTP
-  as a read-only role. Pages are cached for an hour and refreshed on demand
-  right after each ingest.
+- **`web/`** (Next.js 16, App Router, Tailwind, Leaflet, Recharts). The landing
+  page, `/map` and `/about` are server components that read Neon over HTTP as
+  a read-only role. Pages are cached for an hour and refreshed on demand right
+  after each ingest. Leaflet loads client-side only.
 - **`docs/data.md`**: the real API fields, their quirks, and how each was
   checked.
 
@@ -57,6 +61,8 @@ below were measured on Postgres 16 with real data, not guessed.
 ### Storage: about 40 MB at 90 days (about 8% of 0.5 GB)
 
 Rows older than 90 days are deleted every hour, so storage stops growing at day 90.
+On Neon at launch, with 8 weeks seeded (133,498 pedestrian rows), the database
+measured **20 MB** (3.9% of 0.5 GB).
 
 | Table | Working | Size at 90 days |
 |---|---|---:|
@@ -94,7 +100,9 @@ call.
 - **GitHub Actions:** free and unlimited on a public repo. The hourly job takes
   about 1 min, so about 730 min/month.
 - **Gemini Flash (free API):** 24 short calls a day, well under the free daily
-  request limit. If it fails or the limit is hit, a template sentence is used.
+  request limit. Pinned to `gemini-3.8-flash`, falling back to
+  `gemini-3.5-flash`. If both fail, or a reply's numbers don't match the real
+  stats, a template sentence is used.
 - **Vercel Hobby:** one static page per hour plus about 24 calls a day to
   `/api/revalidate`.
 - **Map tiles:** Leaflet with CARTO/OpenStreetMap, no API key.
@@ -108,7 +116,7 @@ call.
 2. **SQL Editor**: paste [pipeline/schema.sql](pipeline/schema.sql) and run it.
    Then give the read-only role a password (don't commit it):
    ```sql
-   alter role web_reader password '<output of: openssl rand -base64 32>';
+   alter role web_reader password '<output of: openssl rand -hex 32>';
    ```
 3. **Branch → Compute → Edit**: set compute size to 0.25 CU (min and max) and
    leave scale-to-zero at 5 minutes.
@@ -130,12 +138,17 @@ call.
 | Secret | `DATABASE_URL` | Neon pooled URL, owner role |
 | Secret | `GEMINI_API_KEY` | from [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | Secret | `REVALIDATE_SECRET` | `openssl rand -hex 32` (same value as in Vercel) |
-| Variable | `SITE_URL` | e.g. `https://melbourne-pulse.vercel.app` (add after deploying) |
+| Variable | `SITE_URL` | your Vercel URL, e.g. `https://<project>.vercel.app` (add after deploying; until then the revalidate step is skipped) |
 
 ### 3. Website (Vercel Hobby)
 
-Set these environment variables: `DATABASE_URL_READONLY` and
-`REVALIDATE_SECRET`. Deployment steps come in the final phase.
+1. **Add New → Project**, import this GitHub repo, and set **Root Directory**
+   to `web`. The framework preset is detected as Next.js.
+2. **Environment Variables** (Production):
+   - `DATABASE_URL_READONLY`: Neon pooled URL for `web_reader`
+   - `REVALIDATE_SECRET`: the same value as the GitHub secret
+   - `NEXT_PUBLIC_SITE_URL`: your Vercel URL (used for share-card links)
+3. **Deploy**, then add the URL as the `SITE_URL` variable in GitHub.
 
 ## Development
 
@@ -148,16 +161,21 @@ cd pipeline
 ../.venv/bin/python seed_history.py --dry-run
 
 # model
-cd model
+cd ../model
 ../.venv/bin/pip install -r requirements-dev.txt
 ../.venv/bin/python -m pytest -q          # includes a no-future-leakage test
 ../.venv/bin/python train.py              # ~5 min; rewrites model.txt.gz, REPORT.md, chart.png
 ../.venv/bin/python predict.py --dry-run
 
 # web
-cd web && npm install && npm run dev
+cd ../web && cp .env.example .env.local && npm install && npm run dev
 ```
 
 ## Data
 
 City of Melbourne Open Data, CC BY. See [docs/data.md](docs/data.md).
+Map tiles © OpenStreetMap contributors, © CARTO.
+
+## License
+
+Code is [MIT](LICENSE). Data stays under the City of Melbourne's CC BY licence.
