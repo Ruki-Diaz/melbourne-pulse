@@ -4,7 +4,7 @@ How busy is Melbourne's CBD right now? A live map of pedestrian counts and free
 parking bays, with 24-hour forecasts and a one-line AI summary. Everything runs
 on free tiers, for **$0**.
 
-**Live:** [melbourne-pulse-lyart.vercel.app](https://melbourne-pulse-lyart.vercel.app)
+**Live:** [melbourne-pulse-au.vercel.app](https://melbourne-pulse-au.vercel.app)
 
 **Forecast accuracy:** the LightGBM model's error is 10% lower than the app's
 8-week baseline (55.3 vs 61.7 people/hour) on 8 weeks of unseen data.
@@ -149,7 +149,7 @@ call.
 | Secret | `DATABASE_URL` | Neon pooled URL, owner role |
 | Secret | `GEMINI_API_KEY` | from [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | Secret | `REVALIDATE_SECRET` | `openssl rand -hex 32` (same value as in Vercel) |
-| Variable | `SITE_URL` | your Vercel URL, e.g. `https://melbourne-pulse-lyart.vercel.app` (add after deploying; until then the revalidate step is skipped) |
+| Variable | `SITE_URL` | your Vercel URL, e.g. `https://melbourne-pulse-au.vercel.app` (add after deploying; until then the revalidate step is skipped) |
 
 Then set up the hourly trigger on cron-job.org: [docs/scheduling.md](docs/scheduling.md).
 
