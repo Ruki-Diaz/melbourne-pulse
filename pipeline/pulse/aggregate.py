@@ -9,6 +9,10 @@ from datetime import datetime, timedelta
 from .timeutil import HOUR, floor_hour, local, parse_ts
 
 STALE_AFTER = timedelta(hours=24)
+# A sensor has finished reporting an hour once its newest minute is this far into
+# it or later. 5-minute sensors end an hour at :55, and sensors upload in batches
+# that can trail the rest of the feed by an hour or more.
+SETTLED_AFTER = timedelta(minutes=50)
 
 
 @dataclass(frozen=True)
@@ -26,6 +30,28 @@ def hourly_sums(rows: list[dict]) -> dict[tuple[int, datetime], int]:
         key = (int(r["location_id"]), floor_hour(parse_ts(r["sensing_datetime"])))
         sums[key] += int(r["total_of_directions"] or 0)
     return dict(sums)
+
+
+def sensor_watermarks(rows: list[dict]) -> dict[int, datetime]:
+    """The newest minute each sensor has reported."""
+    newest: dict[int, datetime] = {}
+    for r in rows:
+        lid, at = int(r["location_id"]), parse_ts(r["sensing_datetime"])
+        if lid not in newest or at > newest[lid]:
+            newest[lid] = at
+    return newest
+
+
+def is_settled(watermark: datetime | None, hour: datetime) -> bool:
+    """Has this sensor finished reporting the hour that starts at `hour`?
+
+    The feed as a whole can be past an hour while one sensor is still part-way
+    through it. Until the sensor's own newest minute reaches the end of the
+    hour, its count is a partial one and must not be compared with a typical
+    full hour. (A sensor nobody walked past also looks unfinished, because zero
+    minutes aren't published; leaving it out costs nothing.)
+    """
+    return watermark is not None and watermark >= hour + SETTLED_AFTER
 
 
 def pedestrian_hourly(rows: list[dict], window_start: datetime) -> list[HourCount]:

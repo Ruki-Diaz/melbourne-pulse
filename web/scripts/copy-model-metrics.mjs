@@ -39,6 +39,10 @@ if (!existsSync(source)) {
     model: scores(shipped.results[LGBM]),
     withoutWeather: scores(control.results[LGBM]),
     usesWeather: decision.ship_weather,
+    // Same model with the weather moved 14 days: if this scored as well, the gain wouldn't be from weather.
+    placebo: decision.placebo
+      ? { shiftDays: decision.placebo.shift_days, mae: one(decision.placebo.mae), wetMae: one(decision.placebo.wet_mae) }
+      : null,
     // How much lower the model's error is than the 8-week typical, in percent.
     improvementPct: Math.round((1 - shipped.results[LGBM].mae / shipped.results[TYPICAL].mae) * 100),
   };

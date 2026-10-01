@@ -16,7 +16,7 @@ export function Footer() {
               Live Civic Analytics
             </span>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-slate-400 mt-1">
             Data:{" "}
             <a
               href="https://data.melbourne.vic.gov.au"

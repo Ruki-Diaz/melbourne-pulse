@@ -1,15 +1,18 @@
 import React from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   Brain,
   Cpu,
   DollarSign,
   Layers,
   AlertCircle,
+  CalendarClock,
 } from "lucide-react";
 
 // The model's test results, copied from model/metrics.json at build time (scripts/copy-model-metrics.mjs).
 import metrics from "@/lib/model-metrics.json";
+import { getPlanEvidence } from "@/lib/plan";
 
 export const revalidate = 3600;
 
@@ -18,7 +21,18 @@ export const metadata = {
   description: "Architecture, machine learning forecast evaluation, free-tier budget, and open civic data provenance.",
 };
 
-export default function AboutPage() {
+const signed = (value: number) => `${value > 0 ? "+" : value < 0 ? "−" : ""}${Math.abs(value)}%`;
+const longDate = (day: string) =>
+  new Date(`${day}T00:00:00Z`).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
+export default async function AboutPage() {
+  // The measured rain effect, from the same data as /api/plan/evidence. If the
+  // database can't be read the section says so instead of showing stale figures.
+  const evidence = await getPlanEvidence().catch(() => null);
+  const overall = evidence?.forest.find((row) => row.group === "overall") ?? null;
+  const heavy = evidence?.forest.find((row) => row.key === "heavy") ?? null;
+  const reliableSensors = evidence?.sensors.filter((s) => s.reliable).length ?? 0;
+
   return (
     <main className="min-h-screen bg-[#05080D] text-slate-200 py-16 px-4 sm:px-6">
       <div className="max-w-4xl mx-auto space-y-16">
@@ -49,10 +63,10 @@ export default function AboutPage() {
           <div className="p-6 rounded-2xl bg-[#0d1424]/80 border border-white/10 backdrop-blur-xl space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="p-4 rounded-xl bg-slate-900/80 border border-white/5 space-y-2">
-                <span className="text-[11px] font-mono text-teal-400 font-bold block">01. INGEST</span>
-                <h3 className="font-semibold text-white text-sm">Open Data Portals</h3>
+                <span className="text-[11px] font-mono text-teal-400 font-bold block">01. SOURCES</span>
+                <h3 className="font-semibold text-white text-sm">City of Melbourne + Open-Meteo</h3>
                 <p className="text-xs text-slate-400">
-                  City of Melbourne Opendatasoft API (per-minute pedestrian streams + 6,324 bay sensors).
+                  City of Melbourne Open Data: per-minute pedestrian counts, parking bay sensors and hourly history. Open-Meteo: the weather forecast and observed rain. Both free, no key.
                 </p>
               </div>
 
@@ -60,7 +74,7 @@ export default function AboutPage() {
                 <span className="text-[11px] font-mono text-teal-400 font-bold block">02. PIPELINE</span>
                 <h3 className="font-semibold text-white text-sm">GitHub Actions</h3>
                 <p className="text-xs text-slate-400">
-                  Runs hourly at :07. Executes pytest suite before database write, aggregates hourly counts.
+                  Started by cron-job.org: hourly ingest and weather, a daily forecast, a monthly rain-effect measurement. Every job runs its tests before it writes.
                 </p>
               </div>
 
@@ -68,7 +82,7 @@ export default function AboutPage() {
                 <span className="text-[11px] font-mono text-teal-400 font-bold block">03. DATABASE</span>
                 <h3 className="font-semibold text-white text-sm">Neon Postgres</h3>
                 <p className="text-xs text-slate-400">
-                  Sydney region. 0.25 CU serverless compute scaling to zero after 5m. 90-day retention window.
+                  Sydney region. 0.25 CU serverless compute scaling to zero after 5m. Hourly aggregates only, kept 90 days.
                 </p>
               </div>
 
@@ -76,7 +90,7 @@ export default function AboutPage() {
                 <span className="text-[11px] font-mono text-teal-400 font-bold block">04. FRONTEND</span>
                 <h3 className="font-semibold text-white text-sm">Next.js on Vercel</h3>
                 <p className="text-xs text-slate-400">
-                  Server components read Neon via read-only role. Cached hourly, on-demand revalidation.
+                  Server components and three small JSON endpoints read Neon as a read-only role. Cached hourly and refreshed right after each ingest.
                 </p>
               </div>
             </div>
@@ -84,11 +98,17 @@ export default function AboutPage() {
             {/* ASCII / Visual Flow */}
             <div className="p-4 rounded-xl bg-black/50 border border-white/5 font-mono text-xs text-slate-400 overflow-x-auto leading-relaxed">
               <pre className="text-teal-300">
-{`City of Melbourne Open Data ──► GitHub Actions (hourly, :07) ──► Neon Postgres ◄── Next.js on Vercel
-  parking bay sensors              pytest (gate)                 hourly aggregates    (read-only role,
-  pedestrian counts                fetch.py  → aggregates                             ISR, revalidate
-  sensor locations                 summary.py → Gemini Flash                          on demand)
-                                   POST /api/revalidate ────────────────────────────►`}
+{`City of Melbourne Open Data ─┐                     cron-job.org (hourly :07, daily 04:37)
+  pedestrian counts          │                                  │ starts
+  parking bay sensors        ├──► GitHub Actions ◄──────────────┘
+  hourly history             │      tests (gate)
+Open-Meteo ──────────────────┘      hourly   fetch.py, weather_forecast.py, summary.py → Gemini Flash
+  weather forecast                  daily    predict.py (LightGBM + weather forecast)
+  observed rain                     monthly  rain_effect.py
+                                         │ writes                    POST /api/revalidate
+                                         ▼                                    │
+                                    Neon Postgres ◄── read-only ── Next.js on Vercel ◄─┘
+                                    hourly aggregates              /  /map  /plan  /about`}
               </pre>
             </div>
           </div>
@@ -170,7 +190,61 @@ export default function AboutPage() {
           </div>
         </section>
 
-        {/* 3. Free-Tier Budget Breakdown */}
+        {/* 3. Plan page and what rain does */}
+        <section className="space-y-6">
+          <div className="flex items-center gap-2 text-sky-400 font-mono text-xs font-semibold uppercase tracking-wider">
+            <CalendarClock className="w-4 h-4" />
+            <span>Plan &amp; Weather</span>
+          </div>
+          <h2 className="text-2xl font-bold text-white font-['Space_Grotesk',sans-serif]">
+            The Plan Page and What Rain Does
+          </h2>
+          <p className="text-sm text-slate-300 leading-relaxed">
+            <Link href="/plan" className="text-teal-300 underline underline-offset-2 hover:text-teal-200">
+              Plan
+            </Link>{" "}
+            turns the forecast into an answer: the best two hours to be in the CBD for the busiest dry spell, the most foot traffic or the quietest time, for the whole CBD or any one sensor. Each recommendation is picked by fixed rules from the forecast pedestrian counts and the Open-Meteo rain forecast. No language model is involved.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="p-6 rounded-2xl bg-[#0d1424]/80 border border-white/10 backdrop-blur-xl space-y-3">
+              <h3 className="text-base font-semibold text-white">Does the weather forecast help the model?</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Yes. On the same {metrics.test.sensorHours.toLocaleString("en-AU")} test sensor-hours, average error fell from {metrics.withoutWeather.mae.toFixed(1)} to {metrics.model.mae.toFixed(1)} pedestrian counts an hour, and in rainy hours from {metrics.withoutWeather.wetMae.toFixed(1)} to {metrics.model.wetMae.toFixed(1)}.
+                {metrics.placebo &&
+                  ` As a check, the same model given weather from ${metrics.placebo.shiftDays} days away scored ${metrics.placebo.mae.toFixed(1)} and ${metrics.placebo.wetMae.toFixed(1)}: no gain, so the improvement comes from the real weather.`}
+              </p>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                The test weeks had only {metrics.test.wetHours} wet hours, so the rainy-hour figures are less certain than the overall ones.
+              </p>
+            </div>
+
+            <div className="p-6 rounded-2xl bg-[#0d1424]/80 border border-white/10 backdrop-blur-xl space-y-3">
+              <h3 className="text-base font-semibold text-white">How much does rain change foot traffic?</h3>
+              {overall ? (
+                <>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    In a wet hour, pedestrian counts across the CBD change by{" "}
+                    <strong className="text-sky-300">{signed(overall.value)}</strong>
+                    {overall.ciLow !== null && overall.ciHigh !== null && ` (95% interval ${signed(overall.ciLow)} to ${signed(overall.ciHigh)})`}, measured over {overall.nWetHours.toLocaleString("en-AU")} wet hours
+                    {evidence?.window && ` from ${longDate(evidence.window.start)} to ${longDate(evidence.window.end)}`}.
+                    {heavy && ` In heavy rain the change is ${signed(heavy.value)}.`}
+                  </p>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Each wet hour is compared with dry hours at the same sensor, hour, day type and month. {reliableSensors} of {evidence?.sensors.length} sensors have a reliable estimate of their own. This explains the forecast; it is never applied to it. Recalculated monthly.
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  The measured rain effect isn&apos;t available right now. It is on the{" "}
+                  <Link href="/plan?evidence=1" className="text-teal-300 underline underline-offset-2">Plan page</Link>.
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* 4. Free-Tier Budget Breakdown */}
         <section className="space-y-6">
           <div className="flex items-center gap-2 text-emerald-400 font-mono text-xs font-semibold uppercase tracking-wider">
             <DollarSign className="w-4 h-4" />
@@ -180,7 +254,7 @@ export default function AboutPage() {
             Free-Tier Budget Breakdown
           </h2>
           <p className="text-sm text-slate-300 leading-relaxed">
-            The entire pipeline, model inference, database, and front-end run indefinitely within the free tiers of Neon, GitHub Actions, Google Gemini, and Vercel.
+            The entire pipeline, model inference, database, and front-end run within the free tiers of Neon, GitHub Actions, cron-job.org, Open-Meteo, Google Gemini, and Vercel.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -208,7 +282,7 @@ export default function AboutPage() {
           </div>
         </section>
 
-        {/* 4. Data Provenance & Author */}
+        {/* 5. Data Provenance & Author */}
         <section className="pt-6 border-t border-white/10 space-y-4 text-xs text-slate-400 leading-relaxed">
           <p>
             <strong>Data License:</strong> Telemetry is sourced from the{" "}
@@ -220,7 +294,16 @@ export default function AboutPage() {
             >
               City of Melbourne Open Data
             </a>{" "}
-            platform under Creative Commons Attribution (CC BY).
+            platform under Creative Commons Attribution (CC BY). Weather data by{" "}
+            <a
+              href="https://open-meteo.com"
+              target="_blank"
+              rel="noreferrer"
+              className="text-slate-200 underline hover:text-teal-400 transition-colors"
+            >
+              Open-Meteo
+            </a>{" "}
+            (CC BY 4.0).
           </p>
           <p>
             Developed by <strong>Rukshan Dias</strong> · Data Science, Deakin University. View complete source code, test suites, and model training scripts on{" "}

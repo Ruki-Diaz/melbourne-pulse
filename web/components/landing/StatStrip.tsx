@@ -10,6 +10,10 @@ import { useFreshness } from "@/lib/useFreshness";
 interface StatStripProps {
   /** null = no data yet: the card shows an empty state, never a made-up number. */
   totalPedestrians: number | null;
+  /** Sensors behind that total: those that have finished reporting the hour. */
+  sensorCount: number;
+  /** Sensors seen in the last 24 hours. More than sensorCount means some are still reporting. */
+  sensorsActive: number;
   pctParkingFree: number | null;
   busiestSpot: {
     name: string;
@@ -73,6 +77,8 @@ function AnimatedCounter({ value, suffix = "", duration = 1.2 }: { value: number
 
 export function StatStrip({
   totalPedestrians,
+  sensorCount,
+  sensorsActive,
   pctParkingFree,
   busiestSpot,
   hourIso,
@@ -94,7 +100,7 @@ export function StatStrip({
         >
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs uppercase tracking-wider font-semibold text-slate-400">
-              {live ? "Pedestrian counts now" : totalPedestrians === null ? "Pedestrian counts" : "Pedestrian counts (last update)"}
+              {live ? "Pedestrian counts this hour" : totalPedestrians === null ? "Pedestrian counts" : "Pedestrian counts (last update)"}
             </span>
             <div className="p-2 rounded-lg bg-teal-500/10 text-teal-400 border border-teal-500/20">
               <Users className="w-4 h-4" />
@@ -105,7 +111,7 @@ export function StatStrip({
           </div>
           <p className="text-xs text-slate-400 flex items-center gap-1.5">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-teal-400" />
-            {totalPedestrians === null || !hour ? WAITING : `All CBD sensors, in the hour from ${hour}`}
+            {totalPedestrians === null || !hour ? WAITING : `Across ${sensorCount < sensorsActive * 0.8 ? `${sensorCount} of ${sensorsActive} sensors so far` : `${sensorCount} sensors`}, in the hour from ${hour}`}
           </p>
         </motion.div>
 

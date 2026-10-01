@@ -315,6 +315,33 @@ export function rainPhrase(maxPrecipProb: number | null): string | null {
   return maxPrecipProb === null ? null : `${RAIN_PHRASE[rainTier(maxPrecipProb)]} (${Math.round(maxPrecipProb)}%)`;
 }
 
+/** "3pm" for the Melbourne hour containing `ms`. */
+export function localHourLabel(ms: number): string {
+  const { hour } = localParts(ms);
+  return `${hour % 12 || 12}${hour < 12 ? "am" : "pm"}`;
+}
+
+export type RainOutlook = { startMs: number; startLabel: string; maxProb: number | null };
+
+/**
+ * The first rain-risk hour among the next `hours` (starting with the hour in
+ * progress), and the highest chance of rain over that time. null if none.
+ * startLabel is "now" when that hour is the one in progress, else like "3pm".
+ * The same rule as pipeline/summary.py's rain_outlook.
+ */
+export function rainOutlook(weather: WeatherPoint[], nowMs: number, hours: number): RainOutlook | null {
+  const first = floorHour(nowMs);
+  const rows = weather.filter((w) => w.ms >= first && w.ms < first + hours * HOUR_MS).sort((a, b) => a.ms - b.ms);
+  const risky = rows.find((w) => (w.precipProb ?? 0) >= WET_PROB_PCT || (w.precipMm ?? 0) >= WET_MM);
+  if (!risky) return null;
+  const chances = rows.map((w) => w.precipProb).filter((p): p is number => p !== null);
+  return {
+    startMs: risky.ms,
+    startLabel: risky.ms === first ? "now" : localHourLabel(risky.ms),
+    maxProb: chances.length ? Math.round(Math.max(...chances)) : null,
+  };
+}
+
 type Block = {
   startMs: number;
   endMs: number;

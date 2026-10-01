@@ -116,7 +116,8 @@ GitHub's own schedule (`37 17 * * *` UTC = 03:37 AEST / 04:37 AEDT) is a fallbac
      - `weather_forecast`: check `max(fetched_at)` (should be within the last 1-2h).
      - `rain_effect`: check `max(computed_at)` (should be within the last 35 days).
    - `/api/plan` shows what the site last read: `dataFreshness` has each table's newest write and `snapshotAt`, the time of the read. If the tables are newer than `snapshotAt` by more than an hour, the hourly job's "Revalidate website" step isn't getting through (check `SITE_URL` and `REVALIDATE_SECRET`).
-4. **Neon usage** (free: 100 CU-hours/month, 0.5 GB): https://console.neon.tech → project → Usage.
+4. **If a number on the homepage looks wrong:** run `cd pipeline && DATABASE_URL='…' ../.venv/bin/python audit.py`. It recomputes the pedestrian count total, the % against typical, the % of parking bays free and the busiest sensor straight from the City of Melbourne API and prints them beside the database and the live page. All four should say "yes". If they match but the counts still look implausibly low, the city's live feed itself may be short: compare with the city's hourly dataset a day later (it is published about a day behind).
+5. **Neon usage** (free: 100 CU-hours/month, 0.5 GB): https://console.neon.tech → project → Usage.
 
 ## If a key leaks
 - **Neon:** Roles → `neondb_owner` → Reset password → update `.env` + GitHub `DATABASE_URL`.

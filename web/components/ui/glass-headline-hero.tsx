@@ -3,7 +3,7 @@
 import React, { useEffect, useRef } from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { motion, useReducedMotion } from "framer-motion";
+import { useReducedMotion } from "framer-motion";
 
 export interface GlassHeadlineHeroProps {
   /** Shown above the title, e.g. a <FreshnessBadge />. */
@@ -14,6 +14,8 @@ export interface GlassHeadlineHeroProps {
   secondaryAction?: { label: string; href: string };
   colors?: string[];
   className?: string;
+  /** Shown under the action buttons, e.g. a small link pill. */
+  footer?: React.ReactNode;
 }
 
 export function GlassHeadlineHero({
@@ -24,6 +26,7 @@ export function GlassHeadlineHero({
   secondaryAction = { label: "How it works", href: "#how" },
   colors = ["#05080D", "#00E5C7", "#2F6BFF", "#7C3AED", "#D6FFF7"],
   className = "",
+  footer,
 }: GlassHeadlineHeroProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const shouldReduceMotion = useReducedMotion();
@@ -228,45 +231,25 @@ export function GlassHeadlineHero({
       <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 text-center flex flex-col items-center pt-8 pb-16">
         {/* Eyebrow badge */}
         {badge && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="mb-6"
-          >
+          <div className="hero-in-down mb-6" style={{ animationDuration: "0.5s" }}>
             {badge}
-          </motion.div>
+          </div>
         )}
 
         {/* Hero Title */}
-        <motion.h1
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.1 }}
-          className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-white mb-6 font-['Space_Grotesk',sans-serif]"
-        >
+        <h1 className="hero-in text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-white mb-6 font-['Space_Grotesk',sans-serif]" style={{ animationDuration: "0.6s", animationDelay: "0.1s" }}>
           <span className="bg-clip-text text-transparent bg-gradient-to-b from-white via-slate-100 to-slate-400">
             {title}
           </span>
-        </motion.h1>
+        </h1>
 
         {/* AI Summary / Description */}
-        <motion.p
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-          className="text-base sm:text-lg md:text-xl text-slate-300 max-w-2xl mx-auto leading-relaxed mb-10 font-normal"
-        >
+        <p className="hero-in text-base sm:text-lg md:text-xl text-slate-300 max-w-2xl mx-auto leading-relaxed mb-10 font-normal" style={{ animationDuration: "0.6s", animationDelay: "0.2s" }}>
           {description}
-        </motion.p>
+        </p>
 
         {/* Action Buttons */}
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.3 }}
-          className="flex flex-wrap items-center justify-center gap-4 w-full sm:w-auto"
-        >
+        <div className="hero-in flex flex-wrap items-center justify-center gap-4 w-full sm:w-auto" style={{ animationDuration: "0.6s", animationDelay: "0.3s" }}>
           {primaryAction && (
             <Link
               href={primaryAction.href}
@@ -285,7 +268,13 @@ export function GlassHeadlineHero({
               <span>{secondaryAction.label}</span>
             </Link>
           )}
-        </motion.div>
+        </div>
+
+        {footer && (
+          <div className="hero-in mt-6" style={{ animationDuration: "0.6s", animationDelay: "0.4s" }}>
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );

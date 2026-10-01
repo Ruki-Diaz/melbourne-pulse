@@ -37,12 +37,24 @@ export type PedestrianSensorLatest = {
   count: number;
   /** null until the sensor has an 8-week baseline. */
   typical: number | null;
+  /**
+   * Has this sensor finished reporting the hour? false = still uploading, so its
+   * count is a part-hour and is left out of totals. Missing on older rows (= true).
+   */
+  settled?: boolean;
 };
 
 export type PedestrianLatestPayload = {
   hour: string;
   sensors: PedestrianSensorLatest[];
+  /** Sensors that have finished reporting the hour, out of those seen in the last 24 h. */
+  coverage?: { reporting: number; active: number };
 };
+
+/** The sensors whose count for the hour is complete: the only ones totals and comparisons may use. */
+export function settledSensors(payload: PedestrianLatestPayload | undefined | null): PedestrianSensorLatest[] {
+  return (payload?.sensors ?? []).filter((s) => s.settled !== false);
+}
 
 export type ParkingBayLatest = {
   kerbsideid: number;
