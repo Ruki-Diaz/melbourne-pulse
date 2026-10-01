@@ -28,11 +28,13 @@ GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-3.8-flash,gemini-3.5-flash").
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 PROMPT = """You write the one-line status for "Melbourne Pulse", a live map of
-Melbourne's CBD. Using ONLY these facts, write ONE friendly sentence of at most
-{max_words} words. Plain text, no emoji, no hashtags, no quotes. Copy any
-percentage exactly as written; don't add numbers that aren't here. You may
-round the people count. "Usual" means the median for this weekday and hour
-over the last 8 weeks.
+pedestrian counts and parking in Melbourne's CBD. Using ONLY these facts, write
+ONE friendly sentence of at most {max_words} words. Plain text, no emoji, no
+hashtags, no quotes. Copy any percentage exactly as written; don't add numbers
+that aren't here. You may round the pedestrian count. It is the total recorded
+by street sensors, and one person can pass several sensors, so call it
+"pedestrian counts" or "foot traffic" and never use the word "people". "Usual"
+means the median for this weekday and hour over the last 8 weeks.
 
 {facts}"""
 
@@ -43,7 +45,7 @@ def prompt_facts(stats: dict) -> dict:
     if "pedestrians" in stats:
         pct = stats["vs_typical_pct"]
         facts["time"] = f"the hour from {stats['hour_label']} on {stats['day']}"
-        facts["people_counted"] = f"{stats['pedestrians']:,} across {stats['sensors']} sensors"
+        facts["pedestrian_counts"] = f"{stats['pedestrians']:,} across {stats['sensors']} sensors"
         facts["compared_with_usual"] = (
             "unknown"
             if pct is None
@@ -62,6 +64,11 @@ def percentages_ok(sentence: str, stats: dict) -> bool:
     allowed = {float(abs(v)) for v in (stats.get("vs_typical_pct"), stats.get("pct_bays_free")) if v is not None}
     found = re.findall(r"(\d+(?:\.\d+)?)\s*(?:%|per ?cent)", sentence, flags=re.IGNORECASE)
     return all(float(x) in allowed for x in found)
+
+
+def wording_ok(sentence: str) -> bool:
+    """Sensor counts are not head counts (one person passes several sensors), so no "people"."""
+    return re.search(r"\bpeople\b", sentence, flags=re.IGNORECASE) is None
 
 
 def hour_label(dt: datetime) -> str:
@@ -112,7 +119,7 @@ def template(stats: dict) -> str:
         when = f"a typical {stats['day']} at {stats['hour_label']}"
         pct = stats["vs_typical_pct"]
         if pct is None:
-            lead = f"Melbourne's CBD counted {stats['pedestrians']:,} people at {stats['hour_label']}"
+            lead = f"Melbourne's CBD sensors logged {stats['pedestrians']:,} pedestrian counts at {stats['hour_label']}"
         elif abs(pct) < 5:
             lead = f"Melbourne's CBD is about as busy as {when}"
         else:
@@ -172,7 +179,7 @@ def ask_gemini(stats: dict) -> str | None:
             print(f"Gemini {model} failed ({exc}) {detail}", file=sys.stderr)
             continue
         sentence = clean_sentence(raw)
-        if sentence is not None and percentages_ok(sentence, stats):
+        if sentence is not None and percentages_ok(sentence, stats) and wording_ok(sentence):
             print(f"Gemini {model} ok")
             return sentence
         print(f"Gemini {model} reply rejected ({raw!r})", file=sys.stderr)

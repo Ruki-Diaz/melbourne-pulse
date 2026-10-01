@@ -1,0 +1,32 @@
+{
+  "source": "model/metrics.json (written by model/train.py; do not edit by hand)",
+  "test": {
+    "from": "2026-08-05",
+    "to": "2026-09-29",
+    "sensorHours": 132696,
+    "sensors": 103,
+    "wetHours": 125
+  },
+  "naive": {
+    "mae": 71.5,
+    "mape": 31.6,
+    "wetMae": 88.2
+  },
+  "typical": {
+    "mae": 61.7,
+    "mape": 25.7,
+    "wetMae": 82.6
+  },
+  "model": {
+    "mae": 53.2,
+    "mape": 22.3,
+    "wetMae": 69.2
+  },
+  "withoutWeather": {
+    "mae": 55.3,
+    "mape": 23.6,
+    "wetMae": 81.7
+  },
+  "usesWeather": true,
+  "improvementPct": 14
+}

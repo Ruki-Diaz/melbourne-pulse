@@ -72,6 +72,14 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
+      # Weather for the Plan page. An Open-Meteo outage is logged and the old
+      # rows are kept; this step only fails if the database does.
+      - name: Weather forecast
+        if: ${{ !cancelled() && steps.tests.outcome == 'success' }}
+        run: python weather_forecast.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       # Still runs if one feed failed (fetch exits 1 but saves the others).
       - name: AI summary
         if: ${{ !cancelled() && steps.tests.outcome == 'success' }}
@@ -86,7 +94,7 @@ jobs:
         if: ${{ !cancelled() && steps.tests.outcome == 'success' && vars.SITE_URL != '' }}
         run: |
           curl -fsS -X POST "$SITE_URL/api/revalidate" -H "Authorization: Bearer $REVALIDATE_SECRET"
-          for path in / /map /opengraph-image; do curl -fsS -o /dev/null "$SITE_URL$path"; done
+          for path in / /map /opengraph-image "/api/plan?sensor=cbd&window=36h" /api/plan/evidence; do curl -fsS -o /dev/null "$SITE_URL$path"; done
         env:
           SITE_URL: ${{ vars.SITE_URL }}
           REVALIDATE_SECRET: ${{ secrets.REVALIDATE_SECRET }}

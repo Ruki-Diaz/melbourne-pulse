@@ -34,6 +34,7 @@ MAPE_MIN = 10  # MAPE is undefined at 0 and explodes near it: only score hours w
 # Weather forecasts to test, by how old they are (see weather.py).
 LEADS = {"latest": "issued just before the hour", "day1": "issued 24 h before the hour"}
 FALLBACK_MODEL = "model_base.txt.gz"
+PLACEBO_SHIFT_DAYS = 14  # weather from the wrong fortnight, to check the gain is real
 OBJECTIVES = ["l1", "poisson", "tweedie"]
 PARAMS = {
     "learning_rate": 0.1,
@@ -148,6 +149,11 @@ def run(hist: pd.DataFrame, columns: list[str], forecasts: pd.DataFrame | None =
     }
 
 
+def placebo_weather(forecasts: pd.DataFrame, days: int = PLACEBO_SHIFT_DAYS) -> pd.DataFrame:
+    """The same forecasts attached to dates `days` later, so every hour gets the wrong weather."""
+    return forecasts.assign(date=forecasts["date"] + pd.Timedelta(days=days))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--no-cache", action="store_true", help="re-download every month")
@@ -211,6 +217,17 @@ def main() -> int:
         "test_hours": int(hist["ts"][test].nunique()),
     }
     print(f"weather {'ships' if ship_weather else 'does not ship'}: keeping {best['label']}")
+
+    # Placebo: same features and settings, but weather from the wrong fortnight. If the
+    # weather columns only helped by giving the model more to fit, this would win too.
+    print(f"training the placebo (weather shifted {PLACEBO_SHIFT_DAYS} days)")
+    placebo = run(hist, control["columns"] + features.WEATHER, placebo_weather(forecasts["day1"]), wet)
+    decision["placebo"] = {
+        "shift_days": PLACEBO_SHIFT_DAYS,
+        "mae": placebo["results"][report.LGBM]["mae"],
+        "wet_mae": placebo["results"][report.LGBM]["wet_mae"],
+    }
+    print(f"  placebo test MAE {decision['placebo']['mae']:.2f}; wet hours {decision['placebo']['wet_mae']:.2f}")
 
     # Ship: refit the best setup on all usable history.
     def save_model(a: dict, name: str) -> Path:

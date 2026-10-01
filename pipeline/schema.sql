@@ -48,6 +48,48 @@ create table if not exists forecasts (
   primary key (sensor_id, hour)
 );
 
+-- Hourly weather forecast for the CBD (Open-Meteo), for the Plan page. `hour` is
+-- the UTC instant the hour starts; rain columns describe that hour (see
+-- pipeline/pulse/openmeteo.py). Future hours are replaced by every hourly run;
+-- past hours are kept 2 days. A missing value is null, never 0.
+create table if not exists weather_forecast (
+  hour                      timestamptz primary key,
+  precipitation             real,      -- mm in the hour
+  precipitation_probability real,      -- 0-100
+  temperature               real,      -- deg C
+  wind_speed                real,      -- km/h
+  weather_code              smallint,  -- WMO code
+  fetched_at                timestamptz not null default now()
+);
+
+-- How much rain changes pedestrian counts, measured over the last 12 months by
+-- pipeline/rain_effect.py (monthly; the whole table is replaced each run).
+-- Used to explain the forecast, never to adjust it.
+--   scope        key
+--   overall      all
+--   intensity    light | heavy
+--   daytype      weekday | weekend      (weekend includes public holidays)
+--   temperature  cold | mild | warm     (< 12 C, 12-20 C, > 20 C)
+--   sensor       <location_id>
+--   profile      cbd                    detail = [{hour, wet, dry, n_wet_hours}]
+-- effect, ci_low, ci_high are fractions (-0.18 = 18% fewer). reliable = at
+-- least 100 wet hours and a 95% interval that excludes zero.
+create table if not exists rain_effect (
+  scope        text        not null
+               check (scope in ('overall', 'intensity', 'daytype', 'temperature', 'sensor', 'profile')),
+  key          text        not null,
+  effect       real,
+  ci_low       real,
+  ci_high      real,
+  n_wet_hours  integer     not null check (n_wet_hours >= 0),
+  reliable     boolean     not null default false,
+  detail       jsonb,
+  window_start date        not null,
+  window_end   date        not null,
+  computed_at  timestamptz not null,
+  primary key (scope, key)
+);
+
 -- Read-only role for the website. No password here: the repo is public.
 -- Set it once in the SQL Editor (not in this file):
 --   alter role web_reader password '<paste output of: openssl rand -base64 32>';
@@ -65,4 +107,5 @@ alter role web_reader set default_transaction_read_only = on;
 alter role web_reader set statement_timeout = '5s';
 revoke all on all tables in schema public from web_reader;
 grant usage on schema public to web_reader;
-grant select on latest, pedestrian_hourly, parking_hourly, forecasts to web_reader;
+grant select on latest, pedestrian_hourly, parking_hourly, forecasts, weather_forecast, rain_effect
+  to web_reader;

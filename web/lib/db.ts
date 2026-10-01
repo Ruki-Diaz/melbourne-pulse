@@ -7,7 +7,7 @@ import { neon } from "@neondatabase/serverless";
  * `server-only` makes the build fail if this is ever imported into client code,
  * so DATABASE_URL_READONLY can't leak to the browser.
  */
-function sql() {
+export function sql() {
   const url = process.env.DATABASE_URL_READONLY;
   return url ? neon(url, { readOnly: true }) : null;
 }

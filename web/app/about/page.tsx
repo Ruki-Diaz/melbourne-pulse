@@ -8,6 +8,9 @@ import {
   AlertCircle,
 } from "lucide-react";
 
+// The model's test results, copied from model/metrics.json at build time (scripts/copy-model-metrics.mjs).
+import metrics from "@/lib/model-metrics.json";
+
 export const revalidate = 3600;
 
 export const metadata = {
@@ -101,7 +104,7 @@ export default function AboutPage() {
             Forecast Model Benchmark
           </h2>
           <p className="text-sm text-slate-300 leading-relaxed">
-            The model was tested strictly on 8 weeks of unseen test data (2026-08-05 to 2026-09-29) spanning 132,696 sensor-hours across 103 Melbourne counting stations.
+            The model was tested strictly on 8 weeks of unseen test data ({metrics.test.from} to {metrics.test.to}) spanning {metrics.test.sensorHours.toLocaleString("en-AU")} sensor-hours across {metrics.test.sensors} Melbourne counting stations. Its average error is {metrics.improvementPct}% lower than the 8-week typical. It uses the weather forecast as an input: in rainy hours its error is {metrics.model.wetMae.toFixed(1)}, against {metrics.withoutWeather.wetMae.toFixed(1)} for the same model without weather.
           </p>
 
           {/* Results Table */}
@@ -110,28 +113,28 @@ export default function AboutPage() {
               <thead className="border-b border-white/10 bg-white/5 text-slate-400 font-mono text-xs">
                 <tr>
                   <th className="p-4 font-semibold">Method</th>
-                  <th className="p-4 font-semibold text-right">Average Error (MAE, people/hr)</th>
+                  <th className="p-4 font-semibold text-right">Average Error (MAE, pedestrian counts/hr)</th>
                   <th className="p-4 font-semibold text-right">Average % Error (MAPE)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5 font-mono">
                 <tr className="hover:bg-white/5 transition-colors">
                   <td className="p-4 text-slate-300 font-sans">Seasonal Naive (same hour last week)</td>
-                  <td className="p-4 text-right text-slate-400">71.5</td>
-                  <td className="p-4 text-right text-slate-400">31.6%</td>
+                  <td className="p-4 text-right text-slate-400">{metrics.naive.mae.toFixed(1)}</td>
+                  <td className="p-4 text-right text-slate-400">{metrics.naive.mape.toFixed(1)}%</td>
                 </tr>
                 <tr className="hover:bg-white/5 transition-colors">
                   <td className="p-4 text-slate-300 font-sans">Typical Baseline (8-week median)</td>
-                  <td className="p-4 text-right text-slate-400">61.7</td>
-                  <td className="p-4 text-right text-slate-400">25.7%</td>
+                  <td className="p-4 text-right text-slate-400">{metrics.typical.mae.toFixed(1)}</td>
+                  <td className="p-4 text-right text-slate-400">{metrics.typical.mape.toFixed(1)}%</td>
                 </tr>
                 <tr className="bg-purple-500/10 hover:bg-purple-500/15 transition-colors font-bold text-purple-200">
                   <td className="p-4 font-sans flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-purple-400" />
                     LightGBM (Our Model)
                   </td>
-                  <td className="p-4 text-right text-teal-300">55.3</td>
-                  <td className="p-4 text-right text-teal-300">23.6%</td>
+                  <td className="p-4 text-right text-teal-300">{metrics.model.mae.toFixed(1)}</td>
+                  <td className="p-4 text-right text-teal-300">{metrics.model.mape.toFixed(1)}%</td>
                 </tr>
               </tbody>
             </table>

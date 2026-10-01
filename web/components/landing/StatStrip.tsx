@@ -94,7 +94,7 @@ export function StatStrip({
         >
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs uppercase tracking-wider font-semibold text-slate-400">
-              {live ? "CBD pedestrians now" : totalPedestrians === null ? "CBD pedestrians" : "CBD pedestrians (last update)"}
+              {live ? "Pedestrian counts now" : totalPedestrians === null ? "Pedestrian counts" : "Pedestrian counts (last update)"}
             </span>
             <div className="p-2 rounded-lg bg-teal-500/10 text-teal-400 border border-teal-500/20">
               <Users className="w-4 h-4" />
@@ -105,7 +105,7 @@ export function StatStrip({
           </div>
           <p className="text-xs text-slate-400 flex items-center gap-1.5">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-teal-400" />
-            {totalPedestrians === null || !hour ? WAITING : `Counted in the hour from ${hour}`}
+            {totalPedestrians === null || !hour ? WAITING : `All CBD sensors, in the hour from ${hour}`}
           </p>
         </motion.div>
 
@@ -157,7 +157,7 @@ export function StatStrip({
             <TrendingUp className="w-3.5 h-3.5" />
             {busiestSpot ? (
               <>
-                <AnimatedCounter value={busiestSpot.count} /> people/hour
+                <AnimatedCounter value={busiestSpot.count} /> pedestrian counts/hour
               </>
             ) : (
               WAITING
