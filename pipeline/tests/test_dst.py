@@ -67,6 +67,7 @@ def test_pedestrian_hourly_across_spring_forward():
     ]
     out = pedestrian_hourly(rows, window_start=utc(2026, 10, 3, 13))
     assert [(local(h.hour).strftime("%H:%M %Z"), h.count, h.is_partial) for h in out] == [
+        ("00:00 AEST", 0, False),  # sensor is up on 4 Oct, so its silent hour is a real 0
         ("01:00 AEST", 5, False),
-        ("03:00 AEDT", 3, True),
+        ("03:00 AEDT", 3, True),  # 02:00 doesn't exist
     ]

@@ -39,11 +39,26 @@ def test_five_minute_sensor_with_gaps(minute_rows):
     assert hourly_sums(minute_rows)[(41, utc(2026, 9, 29, 16))] == 33
 
 
-def test_latest_two_hours_with_current_partial(minute_rows):
+def test_every_hour_in_window_with_newest_partial(minute_rows, monthly_rows):
     out = pedestrian_hourly(minute_rows, window_start=utc(2026, 9, 29, 14))
-    assert {h.hour for h in out} == {utc(2026, 9, 29, 15), utc(2026, 9, 29, 16)}
+    assert {h.hour for h in out} == {utc(2026, 9, 29, 14), utc(2026, 9, 29, 15), utc(2026, 9, 29, 16)}
     assert all(h.is_partial == (h.hour == utc(2026, 9, 29, 16)) for h in out)
-    assert len(out) == 4 * 2  # every sensor gets both hours
+    assert len(out) == 4 * 3  # every sensor gets every hour
+    # Complete hours equal the city's own hourly totals.
+    got = {(h.location_id, h.hour): h.count for h in out}
+    first_hour = {m["location_id"]: m["pedestriancount"] for m in monthly_rows if m["hourday"] == 0}
+    assert all(got[(lid, utc(2026, 9, 29, 14))] == count for lid, count in first_hour.items())
+
+
+def test_missed_runs_heal_on_next_run(minute_rows):
+    """A run that only saw up to 15:00Z left 15:00Z partial; a later run that
+    covers the same window re-writes it as complete."""
+    early = [r for r in minute_rows if r["sensing_datetime"] < "2026-09-29T15:30"]
+    before = {(h.location_id, h.hour): h for h in pedestrian_hourly(early, utc(2026, 9, 29, 14))}
+    after = {(h.location_id, h.hour): h for h in pedestrian_hourly(minute_rows, utc(2026, 9, 29, 14))}
+    key = (3, utc(2026, 9, 29, 15))
+    assert before[key].is_partial and not after[key].is_partial
+    assert after[key].count > before[key].count
 
 
 def test_sensor_silent_for_an_hour_gets_zero():
@@ -53,8 +68,21 @@ def test_sensor_silent_for_an_hour_gets_zero():
         {"location_id": 2, "sensing_datetime": "2026-09-29T15:30:00+00:00", "total_of_directions": 7},
     ]
     out = {(h.location_id, h.hour): h.count for h in pedestrian_hourly(rows, utc(2026, 9, 29, 13))}
-    assert out[(2, utc(2026, 9, 29, 16))] == 0
+    assert out[(2, utc(2026, 9, 29, 16))] == 0  # same local day (30 Sep) as its 15:30Z row
     assert out[(1, utc(2026, 9, 29, 16))] == 2
+    # 13:00Z is 23:00 on 29 Sep local: neither sensor reported that day, so no rows.
+    assert (1, utc(2026, 9, 29, 13)) not in out and (2, utc(2026, 9, 29, 13)) not in out
+
+
+def test_sensor_silent_all_local_day_is_down_not_zero():
+    rows = [
+        {"location_id": 1, "sensing_datetime": "2026-09-29T13:30:00+00:00", "total_of_directions": 4},  # 29 Sep 23:30
+        {"location_id": 2, "sensing_datetime": "2026-09-29T13:40:00+00:00", "total_of_directions": 3},  # 29 Sep 23:40
+        {"location_id": 1, "sensing_datetime": "2026-09-29T16:10:00+00:00", "total_of_directions": 9},  # 30 Sep 02:10
+    ]
+    out = {(h.location_id, h.hour): h.count for h in pedestrian_hourly(rows, utc(2026, 9, 29, 13))}
+    assert out[(1, utc(2026, 9, 29, 14))] == 0  # sensor 1 is up on 30 Sep
+    assert not any(lid == 2 and hour >= utc(2026, 9, 29, 14) for lid, hour in out)  # sensor 2 isn't
 
 
 def test_hour_starting_before_window_is_dropped(minute_rows):

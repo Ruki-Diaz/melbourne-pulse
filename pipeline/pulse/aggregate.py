@@ -6,7 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from .timeutil import HOUR, floor_hour, parse_ts
+from .timeutil import HOUR, floor_hour, local, parse_ts
 
 STALE_AFTER = timedelta(hours=24)
 
@@ -29,16 +29,19 @@ def hourly_sums(rows: list[dict]) -> dict[tuple[int, datetime], int]:
 
 
 def pedestrian_hourly(rows: list[dict], window_start: datetime) -> list[HourCount]:
-    """Sum per-minute rows into the latest two hours for every sensor seen.
+    """Sum per-minute rows into every hour of the download window, per sensor.
 
+    - Every run re-writes the whole window (fetch.py uses ~24 h), so hours a
+      missed run would have written, late-arriving minutes, and hours stored
+      as partial all self-heal on the next successful run.
     - The "current" hour is the one holding the newest minute in the feed
-      (the watermark). It is still filling up, so it is marked partial. The
-      hour before it is complete and is re-written each run so late-arriving
-      minutes land.
+      (the watermark). It is still filling up, so it is marked partial.
     - Minutes with zero people are omitted by the feed, and some sensors report
       5-minute buckets. Both are counts, so we sum `total_of_directions` and
-      never count rows. A sensor seen in the window with no rows in an hour
-      gets 0 for that hour.
+      never count rows.
+    - Missing hours: same rule as pulse.history. A sensor that reported on a
+      local day gets 0 for its silent hours that day; a sensor silent all day
+      is treated as down and gets no rows (not zeros).
     - Hours that start before `window_start` were only partly downloaded, so
       they are dropped rather than overwriting a good value with a short one.
     """
@@ -47,14 +50,24 @@ def pedestrian_hourly(rows: list[dict], window_start: datetime) -> list[HourCoun
 
     watermark = max(parse_ts(r["sensing_datetime"]) for r in rows)
     current = floor_hour(watermark)
-    buckets = [h for h in (current - HOUR, current) if h >= window_start]
+    first = floor_hour(window_start)
+    if first < window_start:
+        first += HOUR
+    hours = []
+    h = first
+    while h <= current:
+        hours.append(h)
+        h += HOUR
+
     sums = hourly_sums(rows)
-    sensors = {lid for lid, _ in sums}
+    up_days = {(lid, local(hour).date()) for lid, hour in sums}
+    sensors = sorted({lid for lid, _ in sums})
 
     return [
         HourCount(lid, h, sums.get((lid, h), 0), is_partial=(h == current))
-        for lid in sorted(sensors)
-        for h in buckets
+        for lid in sensors
+        for h in hours
+        if (lid, h) in sums or (lid, local(h).date()) in up_days
     ]
 
 

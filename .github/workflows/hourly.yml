@@ -1,16 +1,51 @@
 name: hourly
 
+# Primary trigger: cron-job.org calls workflow_dispatch at :07 every hour
+# (GitHub's own scheduler skips many runs on busy hours; see docs/scheduling.md).
+# Backup trigger: GitHub's schedule, which skips itself if a dispatched run
+# already succeeded in the last 55 minutes.
 on:
-  schedule:
-    - cron: "7 * * * *" # every hour at :07 UTC (off the :00 rush; runs start sooner)
   workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
 
+# Only one run at a time. A run that starts while another is in progress waits
+# (it is never cancelled mid-write); if several pile up, GitHub keeps just the
+# newest waiting one. Every write is an upsert, so a repeat run is harmless.
 concurrency:
   group: hourly
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  actions: read # lets the backup check see recent runs
+
 jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          skip=false
+          if [ "$EVENT" = "schedule" ]; then
+            last=$(gh api "repos/${{ github.repository }}/actions/workflows/hourly.yml/runs?event=workflow_dispatch&status=success&per_page=1" \
+              --jq '.workflow_runs[0].updated_at // empty')
+            if [ -n "$last" ] && [ $(( $(date +%s) - $(date -d "$last" +%s) )) -lt 3300 ]; then
+              echo "Dispatched run succeeded at $last; backup schedule not needed."
+              skip=true
+            fi
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
   ingest:
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -46,12 +81,12 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       # Refresh the site while the database is still awake, then request the
-      # page once so it regenerates now rather than on the next visitor.
+      # pages once so they regenerate now rather than on the next visitor.
       - name: Revalidate website
         if: ${{ !cancelled() && steps.tests.outcome == 'success' && vars.SITE_URL != '' }}
         run: |
           curl -fsS -X POST "$SITE_URL/api/revalidate" -H "Authorization: Bearer $REVALIDATE_SECRET"
-          curl -fsS -o /dev/null "$SITE_URL/"
+          for path in / /map /opengraph-image; do curl -fsS -o /dev/null "$SITE_URL$path"; done
         env:
           SITE_URL: ${{ vars.SITE_URL }}
           REVALIDATE_SECRET: ${{ secrets.REVALIDATE_SECRET }}
