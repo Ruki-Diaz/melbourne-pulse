@@ -267,17 +267,61 @@ def test_a_backfill_never_re_flags_an_hour_the_audit_confirmed_as_real():
     assert [q.reason for q in kept] == ["low_counts", "low_counts"]  # and the hour after it starts afresh, not "holding"
 
 
-def test_rain_effect_leaves_out_flagged_hours_but_keeps_ones_confirmed_real():
-    storm, fault = HOUR, HOUR + timedelta(hours=1)
-    rows = [(1, DAY, 15, storm, 300), (2, DAY, 15, storm, 280), (1, DAY, 16, fault, 10), (1, DAY, 17, fault + timedelta(hours=1), 900)]
+class FlagRows:
+    """feed_quality rows as (hour, anomaly, resolution); answers a select the way Postgres would."""
 
-    class Flags:
-        def execute(self, sql):
-            assert sql == "select hour from feed_quality where anomaly"
-            return [(fault,)]  # the storm hour was confirmed real, so its anomaly flag is already false
+    def __init__(self, rows):
+        self.rows = rows
 
-    flagged = rain_effect.flagged_hours(Flags())
-    assert flagged == {fault}
+    def execute(self, sql, params=None):
+        assert "from feed_quality where anomaly" in sql
+        unresolved_only = "resolution is null" in sql
+        return [(hour,) for hour, anomaly, resolution in self.rows if anomaly and (resolution is None or not unresolved_only)]
+
+
+def test_rain_effect_leaves_out_only_unresolved_hours():
+    storm, fault, pending = HOUR, HOUR + timedelta(hours=1), HOUR + timedelta(hours=2)
+    table = FlagRows([(storm, False, "confirmed_real"), (fault, True, "confirmed_fault"), (pending, True, None)])
+    rows = [(1, DAY, 15, storm, 300), (2, DAY, 15, storm, 280), (1, DAY, 16, fault, 700), (1, DAY, 17, pending, 10)]
+
+    flagged = rain_effect.flagged_hours(table)
+    assert flagged == {pending}  # a resolved hour is used whichever way it was resolved
     kept = rain_effect.without_flagged(rows, flagged)
-    assert [r[3] for r in kept] == [storm, storm, fault + timedelta(hours=1)]  # the real storm stays in as rain evidence
+    # The real storm stays in as rain evidence, and so does the fault hour: these rows are the
+    # city's final figures, which were right even though our live table was short.
+    assert [r[3] for r in kept] == [storm, storm, fault]
     assert rain_effect.without_flagged(rows, set()) == rows
+
+
+def test_the_site_still_treats_a_confirmed_fault_as_flagged():
+    """The website compares against our live table, where a fault hour really is incomplete."""
+    import inspect
+
+    from pulse import db
+
+    # The site's typical and its notice read `anomaly` alone, so confirmed_fault (anomaly = true) stays out...
+    assert "q.anomaly)" in inspect.getsource(db.typicals_for) and "resolution" not in inspect.getsource(db.typicals_for)
+    assert "and anomaly" in inspect.getsource(db.feed_anomaly) and "resolution" not in inspect.getsource(db.feed_anomaly)
+    # ...and resolving a fault keeps anomaly true.
+    table = QualityTable({HOUR: {"anomaly": True, "resolution": None}})
+    audit.resolve(table, [compared(400, 1000)])
+    assert table.rows[HOUR] == {"anomaly": True, "resolution": "confirmed_fault"}
+
+
+def test_seeded_hours_are_never_resolved_automatically():
+    """Before the live feed started, our table was copied from the city's dataset: agreement proves nothing."""
+    first_live = audit.LIVE_FEED_SINCE
+    assert first_live == utc(2026, 9, 30, 5)  # Wed 30 Sep 2026, 3pm in Melbourne
+    grand_final = utc(2026, 9, 26, 2)  # Sat 26 Sep, 12pm: seeded, and flagged by the backfill
+    last_seeded = first_live - timedelta(hours=1)
+
+    assert audit.resolution(compared(1000, 1000, hour=grand_final)) is None  # "agrees", but circular
+    assert audit.resolution(compared(300, 1000, hour=grand_final)) is None  # nor is it called a fault
+    assert audit.resolution(compared(1000, 1000, hour=last_seeded)) is None
+    assert audit.resolution(compared(1000, 1000, hour=first_live)) == "confirmed_real"  # the first live hour is fair game
+
+    table = QualityTable({h: {"anomaly": True, "resolution": None} for h in (grand_final, first_live)})
+    done = audit.resolve(table, [compared(1000, 1000, hour=grand_final), compared(1000, 1000, hour=first_live)])
+    assert done == {"confirmed_real": 1, "confirmed_fault": 0}
+    assert table.rows[grand_final] == {"anomaly": True, "resolution": None}  # left flagged
+    assert table.rows[first_live] == {"anomaly": False, "resolution": "confirmed_real"}

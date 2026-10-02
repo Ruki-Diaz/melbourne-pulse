@@ -247,3 +247,28 @@ def test_forecast_does_not_use_a_flagged_hour_as_history():
     poisoned.loc[bad, "count"] = 0  # what a feed fault looks like
     pd.testing.assert_frame_equal(clean, forecast(poisoned, now, booster, features.BASE, excluded=excluded))  # ignored
     assert not forecast(poisoned, now, booster, features.BASE).equals(normal)  # without the flag it would leak in
+
+
+def test_the_model_skips_only_flagged_hours_that_are_still_unresolved(monkeypatch):
+    """A confirmed fault was a fault in OUR live table. The model reads the city's final figures, so it uses the hour."""
+    storm = datetime(2026, 10, 1, 5, tzinfo=timezone.utc)  # confirmed_real: unflagged by the audit
+    fault = datetime(2026, 10, 1, 6, tzinfo=timezone.utc)  # confirmed_fault: still flagged for the website
+    pending = datetime(2026, 10, 1, 7, tzinfo=timezone.utc)  # flagged, not compared yet
+    table = [(storm, False, "confirmed_real"), (fault, True, "confirmed_fault"), (pending, True, None)]
+
+    class Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def execute(self, sql):
+            assert sql == anomalies.UNRESOLVED
+            wants_unresolved = "resolution is null" in sql
+            return [(h,) for h, anomaly, resolution in table if anomaly and (resolution is None or not wants_unresolved)]
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example")
+    monkeypatch.setattr("pulse.db.connect", lambda: Conn())
+    assert anomalies.flagged(required=True) == anomalies.from_utc([pending])
+    assert "resolution is null" in anomalies.UNRESOLVED

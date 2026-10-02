@@ -124,10 +124,10 @@ GitHub's own schedule (`37 17 * * *` UTC = 03:37 AEST / 04:37 AEDT) is a fallbac
 
 **What it means.** The homepage headline, the stat card and the top of `/map` say *"Foot traffic is far below normal across most sensors. This may be severe weather, a major event, or a sensor feed issue."* They show raw counts with no "X% quieter" comparison, and each sensor reads "Comparison paused". The hourly job (`pipeline/feed_quality.py`) has flagged the current hour in the `feed_quality` table because **at least 60% of sensors read under half their typical count at the same time**, on a day that isn't a public holiday, after allowing for heavy rain. In the moment nobody can tell a storm or a big event from a fault in the city's feed, so the notice doesn't pick one. The rules and their thresholds are in `pipeline/pulse/quality.py`.
 
-While an hour is flagged:
-- the summary sentence is the fixed warning (Gemini is not asked);
-- the hour is left out of "typical", so it can't drag next week's baseline down;
-- the forecast model doesn't use it as history (it falls back to the next valid week), and it is dropped from future training. `predict.py` and `train.py` log how many hours were left out.
+While an hour is flagged and not yet resolved:
+- the summary sentence is the fixed notice (Gemini is not asked);
+- the hour is left out of the site's "typical", so it can't drag next week's baseline down;
+- the forecast model doesn't use it as history (it falls back to the next valid week), and it is dropped from training and from the rain effect. `predict.py`, `train.py` and `rain_effect.py` log how many hours were left out.
 
 The notice clears by itself: once fewer than 25% of sensors are low, the next hourly run stops flagging.
 
@@ -135,11 +135,21 @@ The notice clears by itself: once fewer than 25% of sensors are low, the next ho
 
 | Resolution | When | What happens |
 |---|---|---|
-| `confirmed_real` | our total is within 5% of the city's | The hour is unflagged (`anomaly = false`). It counts as normal data again for "typical", the rain effect and the model. A real storm is exactly the heavy-rain evidence the rain effect needs. |
-| `confirmed_fault` | our total is more than 5% below the city's | The live feed was incomplete. The hour stays flagged and excluded. |
-| *(empty)* | not published yet, or ours is above the city's | Nothing changes; it is tried again the next day. |
+| `confirmed_real` | our total is within 5% of the city's | The hour is unflagged (`anomaly = false`) and is normal data again everywhere. A real storm is exactly the heavy-rain evidence the rain effect needs. |
+| `confirmed_fault` | our total is more than 5% below the city's | The live feed was incomplete. On the **site** the hour stays flagged (`anomaly = true`): our live table holds the short counts, so it is kept out of "typical". The **model and the rain effect** use the hour again, because they read the city's final figures, which are correct. |
+| *(empty)* | not published yet, ours is above the city's, or the hour was seeded | Nothing changes: the hour stays flagged and excluded everywhere. Unpublished hours are tried again the next day. |
+
+Who leaves out what:
+
+| | Unresolved flag | `confirmed_fault` | `confirmed_real` |
+|---|---|---|---|
+| Site: notice, "typical", comparisons (our live table) | left out | left out | used |
+| Forecast model: training and lag/typical history (city's figures) | left out | used | used |
+| Rain effect (city's figures) | left out | used | used |
 
 A resolution is final: neither the hourly check nor a `--backfill` re-assesses a resolved hour.
+
+**Seeded hours are never resolved automatically.** Everything in `pedestrian_hourly` before Wed 30 Sep 2026, 3pm (`LIVE_FEED_SINCE` in `pipeline/audit.py`) was copied from the city's hourly dataset by `seed_history.py`, so comparing it with that dataset would always "agree". A flag on such an hour (the two Grand Final Saturday hours, 26 Sep 12pm and 1pm, are the only ones) stays flagged and excluded until you remove it by hand with the SQL in step 3 below. If the database is ever rebuilt and re-seeded, move `LIVE_FEED_SINCE` to the first hour the hourly job wrote.
 
 **How to check by hand.**
 1. See what is flagged: `cd pipeline && DATABASE_URL='…' ../.venv/bin/python feed_quality.py --backfill 3 --dry-run --verbose` prints every hour of the last 3 days with the share of low sensors. Nothing is written with `--dry-run`.

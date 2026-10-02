@@ -108,7 +108,10 @@ create table if not exists feed_quality (
 -- What the city's published hourly totals later said about a flagged hour
 -- (pipeline/audit.py --resolve, daily). null = not compared yet.
 --   confirmed_real   ours matched the city's: really that quiet. anomaly is set back to false.
---   confirmed_fault  ours were well below the city's: the live feed was incomplete. Stays flagged.
+--   confirmed_fault  ours were well below the city's: the live feed was incomplete. anomaly stays
+--                    true, which keeps the hour out of the website's comparisons (they use our
+--                    live table). The model and rain_effect read the city's final figures, so
+--                    they skip only hours that are flagged AND unresolved.
 alter table feed_quality add column if not exists resolution text
   check (resolution in ('confirmed_real', 'confirmed_fault'));
 create index if not exists feed_quality_anomaly on feed_quality (hour) where anomaly;

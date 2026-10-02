@@ -125,7 +125,8 @@ The working is in [Free-tier budget](#free-tier-budget) below.
   typical at once: the site then shows a notice instead of a comparison, and
   the model leaves those hours out. A day later `audit.py --resolve` checks
   each flagged hour against the city's published totals and marks it as real
-  (unflagged) or as a fault in the live feed (kept out). `audit.py` recomputes the homepage numbers straight from the city's
+  (unflagged) or as a fault in the live feed (kept out of the site's
+  comparisons; the model uses the city's final figures for it). `audit.py` recomputes the homepage numbers straight from the city's
   API to check them. `seed_history.py` backfills 8 weeks of history once, so "busier
   than usual" works from day one.
 - **`model/`** (Python, LightGBM). `train.py` learns from two years of hourly
