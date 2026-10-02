@@ -67,13 +67,17 @@ jobs:
         id: tests
         run: pytest -q
 
+      # One feed failing is a warning annotation and the step stays green. It goes
+      # red if every feed failed, a feed has failed 3 runs in a row, or a database
+      # write failed (docs/MAINTENANCE.md, "Yellow warning or red failure").
       - name: Fetch live feeds
         run: python fetch.py
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
-      # Weather for the Plan page. An Open-Meteo outage is logged and the old
-      # rows are kept; this step only fails if the database does.
+      # Weather for the Plan page. An Open-Meteo outage is a warning and the old
+      # rows are kept; this step fails only on the third outage in a row or if
+      # the database does.
       - name: Weather forecast
         if: ${{ !cancelled() && steps.tests.outcome == 'success' }}
         run: python weather_forecast.py
@@ -87,7 +91,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
-      # Still runs if one feed failed (fetch exits 1 but saves the others).
+      # Still runs if the fetch step went red (it saves whatever feeds arrived).
       - name: AI summary
         if: ${{ !cancelled() && steps.tests.outcome == 'success' }}
         run: python summary.py

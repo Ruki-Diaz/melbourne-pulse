@@ -6,7 +6,9 @@ Pulls three feeds, aggregates them to hourly rows, and upserts:
   parking_hourly     CBD-wide free/occupied/stale counts for this hour
   latest             slim current state for the website
 Rows older than 90 days are trimmed. If a feed fails the others are still
-saved and the script exits 1 so the GitHub Action shows red.
+saved, the run gets a warning annotation naming the feed, and the script exits
+0. It exits 1 (red) only if every feed failed, the same feed has failed three
+runs in a row, or a database write failed (see pulse/feedstatus.py).
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from pulse import aggregate, api
+from pulse import aggregate, api, feedstatus
 from pulse.aggregate import HourCount
 from pulse.timeutil import HOUR, UTC, floor_hour, local
 
@@ -24,6 +26,8 @@ from pulse.timeutil import HOUR, UTC, floor_hour, local
 # run GitHub skipped, or a cron that fired late, costs nothing: the next run
 # re-writes every hour it missed. Upserts make re-writing idempotent.
 WINDOW_HOURS = 24
+
+FEEDS = ("pedestrian", "parking", "sensors")
 
 
 @dataclass
@@ -34,7 +38,7 @@ class Feeds:
     watermarks: dict[int, datetime] = field(default_factory=dict)
     bays: list[dict] | None = None
     sensors: list[dict] | None = None
-    failures: list[str] = field(default_factory=list)
+    failures: dict[str, str] = field(default_factory=dict)  # feed -> why it failed
 
     @property
     def complete_hour(self) -> datetime | None:
@@ -53,11 +57,11 @@ def collect(now: datetime | None = None) -> Feeds:
             result = fn()
         except Exception as exc:  # noqa: BLE001 - one bad feed must not block the rest
             print(f"[{name}] FAILED: {exc}", file=sys.stderr)
-            feeds.failures.append(name)
+            feeds.failures[name] = f"{type(exc).__name__}: {exc}"
             return None
         if not result:
             print(f"[{name}] FAILED: no usable rows", file=sys.stderr)
-            feeds.failures.append(name)
+            feeds.failures[name] = "no usable rows"
             return None
         return result
 
@@ -136,7 +140,11 @@ def report(feeds: Feeds) -> None:
         print(f"[sensors] {len(feeds.sensors)} locations, e.g. {feeds.sensors[0]}")
 
 
-def save(feeds: Feeds) -> None:
+def save(feeds: Feeds) -> dict:
+    """Write every feed that arrived; return the failed feeds' streaks (db.record_feed_runs).
+
+    A database error is not caught: it ends the run red.
+    """
     from pulse import db
 
     with db.connect() as conn:
@@ -164,6 +172,11 @@ def save(feeds: Feeds) -> None:
         with conn.transaction():
             deleted = db.trim(conn)
         print(f"trimmed rows older than {db.RETENTION_DAYS} days: {deleted}")
+        # Last, so a feed only counts as a success once its rows are in the database.
+        with conn.transaction():
+            return db.record_feed_runs(
+                conn, ok=[f for f in FEEDS if f not in feeds.failures], failed=list(feeds.failures)
+            )
 
 
 def main() -> int:
@@ -173,15 +186,13 @@ def main() -> int:
 
     feeds = collect()
     report(feeds)
+    streaks = {}
     if args.dry_run:
         print("dry run: nothing written")
     else:
-        save(feeds)
+        streaks = save(feeds)
 
-    if feeds.failures:
-        print(f"failed feeds: {', '.join(feeds.failures)}", file=sys.stderr)
-        return 1
-    return 0
+    return feedstatus.exit_code(feeds.failures, streaks, all_failed=len(feeds.failures) == len(FEEDS))
 
 
 if __name__ == "__main__":

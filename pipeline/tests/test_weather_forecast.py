@@ -106,27 +106,34 @@ def test_save_replaces_future_hours_and_keeps_two_days():
     assert trim.startswith("delete from weather_forecast where hour < now()") and keep == (2,)
 
 
-def test_open_meteo_failure_keeps_the_old_rows(unreachable, capsys):
-    def connect():
-        raise AssertionError("the database must not be touched when Open-Meteo fails")
+def no_streak(conn, ok, failed):
+    """Stands in for db.record_feed_runs: a first failure (the counting is in test_feed_failures.py)."""
+    return {feed: (1, None) for feed in failed}
 
-    assert weather_forecast.refresh(connect) is False
-    assert "keeping the last good rows" in capsys.readouterr().err
+
+def test_open_meteo_failure_keeps_the_old_rows(unreachable, capsys):
+    conn = FakeConn()
+    assert weather_forecast.refresh(lambda: conn, record=no_streak) == 0
+    assert conn.statements == []  # nothing deleted, nothing inserted
+    captured = capsys.readouterr()
+    assert "keeping the last good rows" in captured.err
+    assert "::warning title=Feed failed: weather::" in captured.out
 
 
 def test_an_empty_or_null_forecast_is_treated_as_a_failure(capsys):
-    def connect():
-        raise AssertionError("the database must not be touched")
-
-    assert weather_forecast.refresh(connect, source=lambda: []) is False
     blank = [{"hour": START, "precipitation": None, "precipitation_probability": None,
               "temperature": None, "wind_speed": None, "weather_code": None}]
-    assert weather_forecast.refresh(connect, source=lambda: blank) is False
+    for source in (lambda: [], lambda: blank):
+        conn = FakeConn()
+        assert weather_forecast.refresh(lambda: conn, source=source, record=no_streak) == 0
+        assert conn.statements == []
+        assert "no usable rows" in capsys.readouterr().out
 
 
 def test_the_hourly_step_exits_0_when_open_meteo_is_down(unreachable, monkeypatch):
     monkeypatch.setattr("sys.argv", ["weather_forecast.py"])
-    monkeypatch.setattr("pulse.db.connect", lambda: (_ for _ in ()).throw(AssertionError("no database")))
+    monkeypatch.setattr("pulse.db.connect", FakeConn)
+    monkeypatch.setattr("pulse.db.record_feed_runs", no_streak)
     assert weather_forecast.main() == 0
 
 
