@@ -1,11 +1,13 @@
 import React from "react";
 import {
   getAllLatest,
+  getFeedAnomaly,
   getForecasts,
   getRecentPedestrianHistory,
   settledSensors,
   type SensorMeta,
 } from "@/lib/db";
+import { forDisplay, headline } from "@/lib/feed-anomaly";
 import { getRainOutlook } from "@/lib/plan";
 import { buildTime } from "@/lib/freshness";
 import { buildSeriesBySensor, floorHour, HOUR_MS } from "@/lib/series";
@@ -36,6 +38,9 @@ export default async function HomePage() {
     getRainOutlook(12),
   ]);
   const { pedestrian, parking, sensors: sensorMetaList, summary } = latestData;
+  // Set when the pipeline flagged this hour as a fault in the city's feed: the page
+  // then shows raw counts with a warning and makes no comparison with typical.
+  const feedAnomaly = await getFeedAnomaly(pedestrian?.payload?.hour);
 
   const { now, renderedAt } = buildTime();
   const updatedAt = pedestrian?.updatedAt.toISOString() ?? null;
@@ -44,7 +49,7 @@ export default async function HomePage() {
   sensorMetaList?.payload?.forEach((s) => sensorLookup.set(s.location_id, s));
 
   // 1. Stat strip
-  const liveSensors = pedestrian?.payload?.sensors ?? [];
+  const liveSensors = forDisplay(pedestrian?.payload?.sensors ?? [], feedAnomaly);
   // Totals only use sensors that have finished reporting the hour, never a part-hour.
   const counted = settledSensors(pedestrian?.payload);
   const totalPedestrians = counted.length ? counted.reduce((acc, s) => acc + (s.count || 0), 0) : null;
@@ -138,7 +143,7 @@ export default async function HomePage() {
         renderedAt={renderedAt}
         title="Melbourne, live."
         description={
-          summary?.payload?.text ||
+          headline(summary?.payload?.text, feedAnomaly) ||
           "See how busy the CBD is right now, and what the next 24 hours look like."
         }
         primaryAction={{ label: "Open the live map", href: "/map" }}
@@ -157,6 +162,7 @@ export default async function HomePage() {
         totalPedestrians={totalPedestrians}
         sensorCount={counted.length}
         sensorsActive={sensorsActive}
+        feedAnomaly={feedAnomaly !== null}
         pctParkingFree={pctParkingFree}
         busiestSpot={busiestSpot}
         hourIso={pedestrian?.payload?.hour ?? null}

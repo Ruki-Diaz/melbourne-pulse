@@ -29,6 +29,8 @@ interface MapWrapperProps {
   sensors: MapSensorItem[];
   parking: MapParkingItem[];
   summaryText?: string;
+  /** The city's feed looks faulty this hour: the top bar says so. */
+  feedAnomaly?: boolean;
   updatedAt: string | null;
   renderedAt: string;
   seriesBySensor: Record<number, SeriesPoint[]>;

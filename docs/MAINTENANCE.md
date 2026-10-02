@@ -91,6 +91,7 @@ GitHub's own schedule (`37 17 * * *` UTC = 03:37 AEST / 04:37 AEDT) is a fallbac
 | `parking_hourly` | `pipeline/fetch.py` | Hourly | CBD-wide parking utilization history. |
 | `forecasts` | `model/predict.py` (`daily-forecast.yml`) | Daily (04:37 local) | 24-hour ahead pedestrian count predictions per sensor. |
 | `weather_forecast` | `pipeline/weather_forecast.py` (`hourly.yml`) | Hourly | CBD precipitation, rain probability, temp, wind, and WMO code from Open-Meteo. |
+| `feed_quality` | `pipeline/feed_quality.py` (`hourly.yml`) | Hourly | One row per finished hour: the share of sensors under half their typical, and whether the hour is flagged as a feed anomaly. |
 | `rain_effect` | `pipeline/rain_effect.py` (`monthly-rain-effect.yml`) | Monthly | 12-month matched wet-vs-dry impact statistics across overall, intensity, daytype, temperature, and sensor breakdowns. |
 
 ## Where everything is set
@@ -118,6 +119,26 @@ GitHub's own schedule (`37 17 * * *` UTC = 03:37 AEST / 04:37 AEDT) is a fallbac
    - `/api/plan` shows what the site last read: `dataFreshness` has each table's newest write and `snapshotAt`, the time of the read. If the tables are newer than `snapshotAt` by more than an hour, the hourly job's "Revalidate website" step isn't getting through (check `SITE_URL` and `REVALIDATE_SECRET`).
 4. **If a number on the homepage looks wrong:** run `cd pipeline && DATABASE_URL='…' ../.venv/bin/python audit.py`. It recomputes the pedestrian count total, the % against typical, the % of parking bays free and the busiest sensor straight from the City of Melbourne API and prints them beside the database and the live page. All four should say "yes". If they match but the counts still look implausibly low, the city's live feed itself may be short: compare with the city's hourly dataset a day later (it is published about a day behind).
 5. **Neon usage** (free: 100 CU-hours/month, 0.5 GB): https://console.neon.tech → project → Usage.
+
+## The "sensor feed looks unusual" warning
+
+**What it means.** The homepage headline, the stat card and the top of `/map` say *"The city's sensor feed looks unusual right now. Counts may be incomplete."* and show raw counts with no "X% quieter" comparison. The hourly job (`pipeline/feed_quality.py`) has flagged the current hour in the `feed_quality` table because **at least 60% of sensors read under half their typical count at the same time**, on a day that isn't a public holiday, after allowing for heavy rain. Real events don't move most sensors that far at once; a fault in the city's feed does. The rules and their thresholds are in `pipeline/pulse/quality.py`.
+
+While an hour is flagged:
+- the summary sentence is the fixed warning (Gemini is not asked);
+- the hour is left out of "typical", so it can't drag next week's baseline down;
+- the forecast model doesn't use it as history (it falls back to the next valid week), and it is dropped from future training. `predict.py` and `train.py` log how many hours were left out.
+
+The warning clears by itself: once fewer than 25% of sensors are low, the next hourly run stops flagging.
+
+**How to check whether the city fixed the feed.**
+1. See what is flagged: `cd pipeline && DATABASE_URL='…' ../.venv/bin/python feed_quality.py --backfill 3 --dry-run --verbose` prints every hour of the last 3 days with the share of low sensors. Nothing is written with `--dry-run`.
+2. Compare with the city's own figures: `DATABASE_URL='…' ../.venv/bin/python audit.py`. Its last section sets our hourly totals beside the city's hourly dataset, which is published about a day behind.
+   - **"MISMATCH … ours far below city"** for the flagged hours: the live feed was incomplete and the city's final figures are fine. Nothing to do; the hours stay flagged and excluded.
+   - **"flagged hours match the city's own hourly figures"**: the low counts are in the city's final data too. Either the sensors really under-counted or the city really was that quiet (for example a severe storm). The flag is then a judgement call; see step 3.
+   - **"not in the city's hourly dataset yet"**: too early. Run it again tomorrow.
+3. To clear flags you believe are wrong, delete them and let the model use those hours again: `delete from feed_quality where hour >= '2026-10-01 05:00+00' and hour < '2026-10-01 16:00+00';` (times are UTC). To re-assess after changing a threshold, run `feed_quality.py --backfill 14`: it replaces the last 14 days of flags.
+4. If the feed stays broken for days, the City of Melbourne Open Data team is the contact: https://data.melbourne.vic.gov.au (the dataset page has a "Contact" link).
 
 ## If a key leaks
 - **Neon:** Roles → `neondb_owner` → Reset password → update `.env` + GitHub `DATABASE_URL`.

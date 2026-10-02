@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
-import { getAllLatest, settledSensors } from "@/lib/db";
+import { getAllLatest, getFeedAnomaly, settledSensors } from "@/lib/db";
+import { headline } from "@/lib/feed-anomaly";
 import { getFreshness } from "@/lib/freshness";
 import metrics from "@/lib/model-metrics.json";
 
@@ -37,8 +38,10 @@ export default async function Image() {
         0
       );
     }
-    if (data.summary?.payload?.text) {
-      summaryText = data.summary.payload.text;
+    // A flagged hour gets the warning, never a comparison.
+    const text = headline(data.summary?.payload?.text, await getFeedAnomaly(data.pedestrian?.payload?.hour));
+    if (text) {
+      summaryText = text;
     }
     if (data.parking?.payload) {
       const nonStale = data.parking.payload.filter((p) => !p.stale);

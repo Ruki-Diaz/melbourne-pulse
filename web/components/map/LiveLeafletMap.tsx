@@ -33,6 +33,7 @@ interface LiveLeafletMapProps {
   sensors: MapSensorItem[];
   parking: MapParkingItem[];
   summaryText?: string;
+  feedAnomaly?: boolean;
   updatedAt: string | null;
   renderedAt: string;
   /** Last 24 h actuals + next 24 h forecasts per sensor, keyed by real hour. */
@@ -43,6 +44,7 @@ export function LiveLeafletMap({
   sensors,
   parking,
   summaryText,
+  feedAnomaly = false,
   updatedAt,
   renderedAt,
   seriesBySensor,
@@ -211,6 +213,7 @@ export function LiveLeafletMap({
       {/* Top Map Control Bar */}
       <MapTopBar
         summaryText={summaryText}
+        feedAnomaly={feedAnomaly}
         updatedAt={updatedAt}
         renderedAt={renderedAt}
         parkingVisible={parkingVisible}

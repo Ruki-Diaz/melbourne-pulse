@@ -1,5 +1,6 @@
 import React from "react";
-import { getAllLatest, getForecasts, getRecentPedestrianHistory, type SensorMeta } from "@/lib/db";
+import { getAllLatest, getFeedAnomaly, getForecasts, getRecentPedestrianHistory, type SensorMeta } from "@/lib/db";
+import { forDisplay, headline } from "@/lib/feed-anomaly";
 import { buildTime } from "@/lib/freshness";
 import { buildSeriesBySensor, floorHour, HOUR_MS } from "@/lib/series";
 import { MapWrapper } from "@/components/map/MapWrapper";
@@ -20,12 +21,15 @@ export default async function MapPage() {
   ]);
   const { pedestrian, parking, sensors: sensorMetaList, summary } = latestData;
 
+  // The pipeline flagged this hour as a fault in the city's feed: raw counts only, with a warning.
+  const feedAnomaly = await getFeedAnomaly(pedestrian?.payload?.hour);
+
   const { now, renderedAt } = buildTime();
 
   const sensorLookup = new Map<number, SensorMeta>();
   sensorMetaList?.payload?.forEach((s) => sensorLookup.set(s.location_id, s));
 
-  const liveSensors: MapSensorItem[] = (pedestrian?.payload?.sensors ?? [])
+  const liveSensors: MapSensorItem[] = forDisplay(pedestrian?.payload?.sensors ?? [], feedAnomaly)
     .map((s) => {
       const meta = sensorLookup.get(s.location_id);
       if (!meta) return null;
@@ -63,7 +67,8 @@ export default async function MapPage() {
       <MapWrapper
         sensors={liveSensors}
         parking={liveParking}
-        summaryText={summary?.payload?.text}
+        summaryText={headline(summary?.payload?.text, feedAnomaly)}
+        feedAnomaly={feedAnomaly !== null}
         updatedAt={pedestrian?.updatedAt.toISOString() ?? null}
         renderedAt={renderedAt}
         seriesBySensor={seriesBySensor}

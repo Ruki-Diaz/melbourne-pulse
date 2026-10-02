@@ -90,6 +90,22 @@ create table if not exists rain_effect (
   primary key (scope, key)
 );
 
+-- One row per finished hour: does the city's live feed look faulty? (pipeline/feed_quality.py,
+-- rules in pipeline/pulse/quality.py.) anomaly = most sensors read under half their typical
+-- at once, not explained by heavy rain or a public holiday. The website shows a warning
+-- instead of a comparison for such an hour, and the forecast model leaves it out.
+create table if not exists feed_quality (
+  hour           timestamptz primary key,
+  sensors_judged integer     not null check (sensors_judged >= 0),  -- sensors with a usable typical
+  sensors_low    integer     not null check (sensors_low >= 0),     -- of those, under the threshold
+  share_low      real,                                               -- sensors_low / sensors_judged
+  anomaly        boolean     not null,
+  reason         text        not null,  -- ok | low_counts | holding | public_holiday | too_few_sensors
+  heavy_rain     boolean     not null default false,                 -- thresholds were relaxed for heavy rain
+  checked_at     timestamptz not null default now()
+);
+create index if not exists feed_quality_anomaly on feed_quality (hour) where anomaly;
+
 -- Read-only role for the website. No password here: the repo is public.
 -- Set it once in the SQL Editor (not in this file):
 --   alter role web_reader password '<paste output of: openssl rand -base64 32>';
@@ -107,5 +123,5 @@ alter role web_reader set default_transaction_read_only = on;
 alter role web_reader set statement_timeout = '5s';
 revoke all on all tables in schema public from web_reader;
 grant usage on schema public to web_reader;
-grant select on latest, pedestrian_hourly, parking_hourly, forecasts, weather_forecast, rain_effect
+grant select on latest, pedestrian_hourly, parking_hourly, forecasts, weather_forecast, rain_effect, feed_quality
   to web_reader;

@@ -5,10 +5,13 @@ import Link from "next/link";
 import { ArrowLeft, AlertTriangle, Sparkles, Layers } from "lucide-react";
 
 import { FreshnessBadge } from "@/components/ui/FreshnessBadge";
+import { FEED_ANOMALY_TEXT } from "@/lib/feed-anomaly";
 import { useFreshness } from "@/lib/useFreshness";
 
 interface MapTopBarProps {
   summaryText?: string;
+  /** The pipeline flagged this hour as a fault in the city's feed. */
+  feedAnomaly?: boolean;
   updatedAt: string | null;
   renderedAt: string;
   parkingVisible: boolean;
@@ -18,6 +21,7 @@ interface MapTopBarProps {
 
 export function MapTopBar({
   summaryText,
+  feedAnomaly = false,
   updatedAt,
   renderedAt,
   parkingVisible,
@@ -36,6 +40,17 @@ export function MapTopBar({
               ? `${freshness.label}. The hourly update is running late, so these counts aren't live.`
               : "Waiting for the next update."}
           </span>
+        </div>
+      )}
+
+      {/* The city's feed looks faulty: say so on every screen size (the summary line below is desktop only) */}
+      {feedAnomaly && (
+        <div
+          role="status"
+          className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-200 text-xs sm:text-sm backdrop-blur-xl shadow-lg"
+        >
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>{FEED_ANOMALY_TEXT} Sensors are shown without a comparison to typical.</span>
         </div>
       )}
 

@@ -21,6 +21,8 @@ import holidays
 import numpy as np
 import pandas as pd
 
+import anomalies
+
 WEEKS = 8  # the app's 'typical' window
 
 BASE = [
@@ -76,6 +78,7 @@ def build(
     history: pd.DataFrame,
     columns: list[str] = BASE,
     weather: pd.DataFrame | None = None,
+    excluded: frozenset[int] = frozenset(),
 ) -> pd.DataFrame:
     """Features for each (location_id, date, hour) in `targets`, using `history`.
 
@@ -83,6 +86,12 @@ def build(
     sensor-days complete with zeros, down sensor-days absent). `weather` has
     date, hour and the forecast columns from weather.py; it is only needed
     when `columns` includes WEATHER features. Hours it doesn't cover are NaN.
+
+    `excluded` holds the hours flagged as a feed anomaly (anomalies.flagged).
+    Such an hour is never used as history: "last week" becomes the most recent
+    week that isn't flagged, "two weeks ago" the one before that, and the
+    medians and means simply leave it out. A sensor that was down is different:
+    that stays missing (NaN), as before.
     """
     counts = history.set_index(["location_id", "date", "hour"])["count"]
     day_totals = history.groupby(["location_id", "date"])["count"].sum()
@@ -94,12 +103,24 @@ def build(
     def weeks_back(k: int) -> pd.Series:
         return date - pd.Timedelta(days=7 * k)
 
-    lags = np.column_stack(
+    raw_lags = np.column_stack(
         [
             counts.reindex(pd.MultiIndex.from_arrays([sensor, weeks_back(k), hour])).to_numpy(dtype=float)
             for k in range(1, WEEKS + 1)
         ]
     )
+    known = np.fromiter(excluded, dtype="int64", count=len(excluded))
+    flagged = np.column_stack([np.isin(anomalies.keys(weeks_back(k), hour), known) for k in range(1, WEEKS + 1)])
+    lags = np.where(flagged, np.nan, raw_lags)
+    rows = np.arange(len(date))
+
+    def nth_valid(skip: np.ndarray, n: int) -> tuple[np.ndarray, np.ndarray]:
+        """Index (0 = one week back) of the n-th week not marked in `skip`, and whether there is one."""
+        order = np.argsort(skip, axis=1, kind="stable")  # unmarked weeks first, still newest to oldest
+        return order[:, n], (~skip).sum(axis=1) > n
+
+    week_1, has_1 = nth_valid(flagged, 0)
+    week_2, has_2 = nth_valid(flagged, 1)
     with warnings.catch_warnings():  # all-NaN rows (new sensor) are expected -> NaN
         warnings.simplefilter("ignore", RuntimeWarning)
         typical = np.nanmedian(lags, axis=1)
@@ -108,22 +129,31 @@ def build(
     def day_total(k: int) -> np.ndarray:
         return day_totals.reindex(pd.MultiIndex.from_arrays([sensor, weeks_back(k)])).to_numpy(dtype=float)
 
+    # A day with any flagged hour has an understated total: use the same weekday of an earlier week.
+    bad_days = np.unique(known // 24)
+    day_flagged = np.column_stack(
+        [np.isin(anomalies.keys(weeks_back(k), np.zeros(len(date), dtype="int64")) // 24, bad_days) for k in range(1, WEEKS + 1)]
+    )
+    day_week, has_day = nth_valid(day_flagged, 0)
+    totals = np.column_stack([day_total(k) for k in range(1, WEEKS + 1)])
+    lag_1w_date = date - pd.to_timedelta(7 * (week_1 + 1), unit="D")
+
     all_features = {
         "sensor": sensor,
         "hour": hour,
         "dow": date.dt.dayofweek.to_numpy(),
         "month": date.dt.month.to_numpy(),
         "public_holiday": is_holiday(date),
-        "lag_1w": lags[:, 0],
-        "lag_2w": lags[:, 1],
+        "lag_1w": np.where(has_1, raw_lags[rows, week_1], np.nan),
+        "lag_2w": np.where(has_2, raw_lags[rows, week_2], np.nan),
         "typical_8w": typical,
         "mean_4w": mean_4w,
         "weeks_available": np.isfinite(lags).sum(axis=1),
-        "day_total_1w": day_total(1),
-        "lag_1w_holiday": is_holiday(weeks_back(1)),
+        "day_total_1w": np.where(has_day, totals[rows, day_week], np.nan),
+        "lag_1w_holiday": is_holiday(lag_1w_date),
         "school_holiday": is_holiday(date, "school"),
         # sensor-days with no data among the 4 same-weekdays used for mean_4w
-        "down_days_4w": sum(np.isnan(day_total(k)) for k in range(1, 5)),
+        "down_days_4w": np.isnan(totals[:, :4]).sum(axis=1),
     }
     if set(columns) & set(WEATHER):
         if weather is None:
