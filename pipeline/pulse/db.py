@@ -112,6 +112,46 @@ def upcoming_weather(conn: psycopg.Connection, hours: int = 12) -> list[dict]:
     return [dict(zip(("hour", "precipitation", "precipitation_probability", "fetched_at"), r)) for r in rows]
 
 
+def record_feed_runs(
+    conn: psycopg.Connection, ok: list[str], failed: list[str]
+) -> dict[str, tuple[int, datetime | None]]:
+    """Note this run's outcome per feed; for each failed feed return (runs failed in a row, last success).
+
+    The table is created here if it is missing, so the hourly job needs no manual migration.
+    """
+    conn.execute(
+        """
+        create table if not exists feed_status (
+          feed                 text primary key,
+          last_success_at      timestamptz,
+          last_failure_at      timestamptz,
+          consecutive_failures integer not null default 0 check (consecutive_failures >= 0)
+        )
+        """
+    )
+    for feed in ok:
+        conn.execute(
+            """
+            insert into feed_status (feed, last_success_at, consecutive_failures) values (%s, now(), 0)
+            on conflict (feed) do update set last_success_at = now(), consecutive_failures = 0
+            """,
+            (feed,),
+        )
+    streaks = {}
+    for feed in failed:
+        runs, last_ok = conn.execute(
+            """
+            insert into feed_status (feed, last_failure_at, consecutive_failures) values (%s, now(), 1)
+            on conflict (feed) do update
+              set last_failure_at = now(), consecutive_failures = feed_status.consecutive_failures + 1
+            returning consecutive_failures, last_success_at
+            """,
+            (feed,),
+        ).fetchone()
+        streaks[feed] = (runs, last_ok)
+    return streaks
+
+
 def trim(conn: psycopg.Connection) -> dict[str, int]:
     deleted = {}
     for table in ("pedestrian_hourly", "parking_hourly"):

@@ -116,6 +116,17 @@ alter table feed_quality add column if not exists resolution text
   check (resolution in ('confirmed_real', 'confirmed_fault'));
 create index if not exists feed_quality_anomaly on feed_quality (hour) where anomaly;
 
+-- One row per feed (pedestrian, parking, sensors, weather): how its last hourly fetch went.
+-- consecutive_failures is reset by a success. One failure is only a warning on the run;
+-- at 3 in a row the hourly job fails (pipeline/pulse/feedstatus.py). Written by fetch.py and
+-- weather_forecast.py, which also create the table if it is missing. The website doesn't read it.
+create table if not exists feed_status (
+  feed                 text primary key,
+  last_success_at      timestamptz,
+  last_failure_at      timestamptz,
+  consecutive_failures integer not null default 0 check (consecutive_failures >= 0)
+);
+
 -- Read-only role for the website. No password here: the repo is public.
 -- Set it once in the SQL Editor (not in this file):
 --   alter role web_reader password '<paste output of: openssl rand -base64 32>';

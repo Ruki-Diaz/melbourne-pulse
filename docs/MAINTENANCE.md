@@ -92,6 +92,7 @@ GitHub's own schedule (`37 17 * * *` UTC = 03:37 AEST / 04:37 AEDT) is a fallbac
 | `forecasts` | `model/predict.py` (`daily-forecast.yml`) | Daily (04:37 local) | 24-hour ahead pedestrian count predictions per sensor. |
 | `weather_forecast` | `pipeline/weather_forecast.py` (`hourly.yml`) | Hourly | CBD precipitation, rain probability, temp, wind, and WMO code from Open-Meteo. |
 | `feed_quality` | `pipeline/feed_quality.py` (`hourly.yml`); `pipeline/audit.py --resolve` (`daily-forecast.yml`) | Hourly; resolved daily | One row per finished hour: the share of sensors under half their typical, whether the hour is flagged, and what the city's figures later said (`resolution`). |
+| `feed_status` | `pipeline/fetch.py`, `pipeline/weather_forecast.py` (`hourly.yml`) | Hourly | One row per feed (`pedestrian`, `parking`, `sensors`, `weather`): last success, last failure, and how many runs in a row it has failed. Created by the job itself if missing. Not readable by the website. |
 | `rain_effect` | `pipeline/rain_effect.py` (`monthly-rain-effect.yml`) | Monthly | 12-month matched wet-vs-dry impact statistics across overall, intensity, daytype, temperature, and sensor breakdowns. |
 
 ## Where everything is set
@@ -108,7 +109,7 @@ GitHub's own schedule (`37 17 * * *` UTC = 03:37 AEST / 04:37 AEDT) is a fallbac
 ## Quick health check
 
 1. **Live site badge** "Live · updated X min ago" (under 2 h) → all good.
-2. **Amber "Last updated X h ago"** → check https://github.com/Ruki-Diaz/melbourne-pulse/actions. Red run → copy the error. No recent runs → check cron-job.org (token expired? job disabled?).
+2. **Amber "Last updated X h ago"** → check https://github.com/Ruki-Diaz/melbourne-pulse/actions. Red run → copy the error (see "Yellow warning or red failure" below). A green run with a yellow warning is one feed missing one run and needs nothing. No recent runs → check cron-job.org (token expired? job disabled?).
 3. **If `/plan` looks stale:**
    - Check `daily-forecast.yml` runs in GitHub Actions (should have run today at 04:37 Melbourne time).
    - Check `hourly.yml` runs in GitHub Actions (should run hourly to pull Open-Meteo weather into `weather_forecast` and revalidate Vercel cache).
@@ -119,6 +120,25 @@ GitHub's own schedule (`37 17 * * *` UTC = 03:37 AEST / 04:37 AEDT) is a fallbac
    - `/api/plan` shows what the site last read: `dataFreshness` has each table's newest write and `snapshotAt`, the time of the read. If the tables are newer than `snapshotAt` by more than an hour, the hourly job's "Revalidate website" step isn't getting through (check `SITE_URL` and `REVALIDATE_SECRET`).
 4. **If a number on the homepage looks wrong:** run `cd pipeline && DATABASE_URL='…' ../.venv/bin/python audit.py`. It recomputes the pedestrian count total, the % against typical, the % of parking bays free and the busiest sensor straight from the City of Melbourne API and prints them beside the database and the live page. All four should say "yes". If they match but the counts still look implausibly low, the city's live feed itself may be short: compare with the city's hourly dataset a day later (it is published about a day behind).
 5. **Neon usage** (free: 100 CU-hours/month, 0.5 GB): https://console.neon.tech → project → Usage.
+
+## Yellow warning or red failure (the `hourly` job)
+
+The hourly job reads four outside feeds: three from the City of Melbourne (`pedestrian`, `parking`, `sensors`) and one from Open-Meteo (`weather`). A city feed is tried 4 times and Open-Meteo 3 times before it counts as failed. The rules are in `pipeline/pulse/feedstatus.py`.
+
+| What you see | What happened | What to do |
+|---|---|---|
+| **Green run with a yellow warning** `Feed failed: parking` (on the run's Summary page, under Annotations) | That one feed errored, timed out or sent no rows this run. The other feeds were saved and the site was refreshed. No email is sent. | Nothing. Pedestrian counts are re-read for the last 24 hours on every run, so the gap fills itself. A missed `parking` run leaves that hour out of `parking_hourly` for good; the live map just shows the previous hour's bays until the next run. |
+| **Red run** with `Feed stale: parking` | The same feed has failed **3 runs in a row**. GitHub emails you. Every later run stays red until the feed works again. | Open the dataset on https://data.melbourne.vic.gov.au (or https://open-meteo.com for `weather`). If it is down there too, wait: the first good run clears the count by itself. If it works there, the dataset id or its fields have changed: run `cd pipeline && ../.venv/bin/python fetch.py --dry-run` and read the error. |
+| **Red run** with `All feeds failed` | All three city feeds failed in the same run, so nothing new was saved. | The same as above. The site keeps showing its last data with the amber "Last updated X h ago". |
+| **Red run** ending in a Python traceback | A database write failed (Neon unreachable, a bad `DATABASE_URL`, a schema problem). | Copy the last lines of the log. Check https://neonstatus.com and the Neon console. |
+
+Things worth knowing:
+
+- "3 runs in a row" counts every run that fetches, including the :17 backup run and runs you start by hand. With the normal hourly schedule that is about 3 hours of outage.
+- The count lives in the `feed_status` table. To see it: `select * from feed_status;` in the Neon SQL Editor. `last_success_at` is the last time each feed was fetched and saved.
+- To silence a known long outage, there is no switch: the red runs are the alarm. They stop on the first good fetch.
+- A green run with a warning counts as a success for the :17 backup, so the backup does not retry the failed feed that hour.
+- The later steps (weather, feed quality, summary, revalidate) run whether the fetch step is green or red.
 
 ## The "far below normal" notice
 
