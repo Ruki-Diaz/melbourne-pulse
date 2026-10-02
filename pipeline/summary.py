@@ -36,8 +36,12 @@ MAX_WORDS = 30
 GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-3.8-flash,gemini-3.5-flash").split(",")
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
-# Said instead of any comparison when the feed itself looks faulty (feed_quality.py).
-FEED_ANOMALY_TEXT = "The city's sensor feed looks unusual right now. Counts may be incomplete."
+# Said instead of any comparison when the hour is flagged (feed_quality.py). It names the
+# possible causes without picking one: at this point nobody knows which it is.
+FEED_ANOMALY_TEXT = (
+    "Foot traffic is far below normal across most sensors. "
+    "This may be severe weather, a major event, or a sensor feed issue."
+)
 
 # Below this share of sensors reporting, the sentence says so (and is always the template).
 MIN_COVERAGE = 0.8
@@ -235,7 +239,7 @@ def template(stats: dict) -> str:
     """Deterministic fallback sentence; drops detail until it fits 30 words.
 
     Low sensor coverage and rain are never dropped: every candidate keeps them.
-    During a feed anomaly the sentence is the fixed warning and nothing else.
+    While the hour is flagged the sentence is the fixed notice and nothing else.
     """
     if stats.get("feed_anomaly"):
         return FEED_ANOMALY_TEXT
@@ -328,7 +332,7 @@ def compose(stats: dict) -> dict:
     # During a feed anomaly, or with few sensors reporting, the sentence has to say so:
     # only the template guarantees that, so Gemini is not asked.
     if stats.get("feed_anomaly"):
-        print("feed anomaly; using the fixed warning")
+        print("flagged hour; using the fixed notice")
         sentence = None
     elif stats.get("low_coverage") or not stats.get("sensors", 1):
         print("low sensor coverage; using the template")

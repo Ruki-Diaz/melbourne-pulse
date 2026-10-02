@@ -121,9 +121,11 @@ The working is in [Free-tier budget](#free-tier-budget) below.
   of Open-Meteo forecast. `summary.py` sends a few stats (never raw data) to
   Gemini Flash for a one-sentence summary, checks every number, time and rain
   claim in the reply against the data, and falls back to a template if anything
-  is off. `feed_quality.py` flags hours when the city's feed itself looks faulty
-  (most sensors under half their typical at once): the site then shows a
-  warning instead of a comparison, and the model leaves those hours out. `audit.py` recomputes the homepage numbers straight from the city's
+  is off. `feed_quality.py` flags hours when most sensors read under half their
+  typical at once: the site then shows a notice instead of a comparison, and
+  the model leaves those hours out. A day later `audit.py --resolve` checks
+  each flagged hour against the city's published totals and marks it as real
+  (unflagged) or as a fault in the live feed (kept out). `audit.py` recomputes the homepage numbers straight from the city's
   API to check them. `seed_history.py` backfills 8 weeks of history once, so "busier
   than usual" works from day one.
 - **`model/`** (Python, LightGBM). `train.py` learns from two years of hourly
@@ -293,6 +295,7 @@ cd ../model
 ../.venv/bin/pip install -r requirements-dev.txt
 ../.venv/bin/python -m pytest -q          # includes a no-future-leakage test
 DATABASE_URL='…' ../.venv/bin/python train.py              # ~10 min; rewrites model*.txt.gz, REPORT.md, chart.png
+                                                          # (needs the database to skip flagged hours; --no-quality-flags to train without)
 ../.venv/bin/python predict.py --dry-run
 
 # web

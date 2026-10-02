@@ -9,6 +9,7 @@ import { maplibreGL } from "@maplibre/maplibre-gl-leaflet";
 import { SensorDetailSheet, type SensorDetailData } from "./SensorDetailSheet";
 import { MapTopBar } from "./MapTopBar";
 import type { SeriesPoint } from "@/lib/series";
+import { noComparisonLabel } from "@/lib/feed-anomaly";
 
 export interface MapSensorItem {
   location_id: number;
@@ -144,10 +145,10 @@ export function LiveLeafletMap({
 
       // Hover tooltip
       const deltaText =
-        delta === null ? "no baseline yet" : `${delta >= 0 ? "+" : ""}${delta.toFixed(0)}% vs usual`;
+        delta === null ? noComparisonLabel(feedAnomaly, "no baseline yet") : `${delta >= 0 ? "+" : ""}${delta.toFixed(0)}% vs usual`;
       circle.bindTooltip(
         `<strong>${s.name}</strong><br/>
-         <span style="font-family:monospace;font-size:12px;">${s.count.toLocaleString()} people/hr</span>
+         <span style="font-family:monospace;font-size:12px;">${s.count.toLocaleString()} pedestrian counts/hr</span>
          <span style="color:${color};font-weight:600;font-size:11px;"> (${deltaText})</span>`,
         { className: "dark-map-tooltip", direction: "top", offset: [0, -10] }
       );
@@ -169,7 +170,7 @@ export function LiveLeafletMap({
 
       circle.addTo(layer);
     });
-  }, [sensors, seriesBySensor]);
+  }, [sensors, seriesBySensor, feedAnomaly]);
 
   // Render Parking Bays Layer
   useEffect(() => {
@@ -225,7 +226,7 @@ export function LiveLeafletMap({
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
       {/* Floating Sensor Detail Drawer */}
-      <SensorDetailSheet sensor={selectedSensor} onClose={() => setSelectedSensor(null)} />
+      <SensorDetailSheet sensor={selectedSensor} onClose={() => setSelectedSensor(null)} comparisonPaused={feedAnomaly} />
 
       {/* Map Legend Overlay in Bottom Left */}
       <div className="absolute bottom-14 sm:bottom-6 left-4 z-[900] p-3.5 rounded-2xl bg-[#05080D]/90 border border-white/10 backdrop-blur-xl shadow-2xl text-xs text-slate-300 space-y-2 max-w-xs">
@@ -247,7 +248,7 @@ export function LiveLeafletMap({
           </div>
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-slate-600 border border-white/30" />
-            <span>Pedestrians: No baseline yet</span>
+            <span>Pedestrians: {noComparisonLabel(feedAnomaly, "No baseline yet")}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-400" />

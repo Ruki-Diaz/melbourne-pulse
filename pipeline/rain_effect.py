@@ -17,11 +17,15 @@ Method (matched wet vs dry):
   - 95% interval: bootstrap over whole days (400 resamples, fixed seed), with
     the dry-hour means recomputed in every resample.
   - reliable = at least 100 wet hours AND the interval excludes zero.
+  - Hours still flagged in feed_quality (a possible feed fault) are left out.
+    Hours the daily audit confirmed as real are kept: a real storm is exactly
+    the evidence this measures.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -299,10 +303,28 @@ def last_full_day(rows: list[Row], weather: list[dict]) -> date:
     return max(day for day, stamps in stamps_by_day.items() if stamps <= known)
 
 
-def load(today: date) -> tuple[Table, date, date]:
+def flagged_hours(conn) -> set[datetime]:
+    """Hours still flagged in feed_quality: unresolved, or confirmed as a feed fault.
+
+    An hour confirmed as real (a storm, say) is not in this set. It was unflagged
+    when it was confirmed, and it is exactly the heavy-rain evidence this
+    measurement needs.
+    """
+    return {row[0] for row in conn.execute("select hour from feed_quality where anomaly")}
+
+
+def without_flagged(rows: list[Row], flagged: set[datetime]) -> list[Row]:
+    """`rows` minus every sensor-hour in a flagged hour, wet or dry."""
+    return [r for r in rows if r[3] not in flagged]
+
+
+def load(today: date, flagged: set[datetime] = frozenset()) -> tuple[Table, date, date]:
     """Download counts and weather and build the table for the newest 12-month window."""
     first = window_for(today)[0] - timedelta(days=10)  # slack for the data lag
     rows = download_counts(first, today)
+    kept = without_flagged(rows, flagged)
+    print(f"  {len(rows) - len(kept):,} sensor-hours left out: they fall in hours flagged as a possible feed fault")
+    rows = kept
     print(f"  observed weather {first} .. {today}")
     weather = openmeteo.observed(first, today)
     start, end = window_for(last_full_day(rows, weather))
@@ -358,8 +380,16 @@ def main() -> int:
     args = parser.parse_args()
 
     now = datetime.now(UTC)
+    if os.environ.get("DATABASE_URL"):
+        from pulse import db
+
+        with db.connect() as conn:
+            flagged = flagged_hours(conn)
+    else:  # only possible with --dry-run; the real run needs the database to save
+        print("DATABASE_URL not set: flagged hours are NOT left out of this dry run")
+        flagged = set()
     print("loading the last 12 months")
-    table, start, end = load(local(now).date())
+    table, start, end = load(local(now).date(), flagged)
     print(
         f"  window {start} .. {end}: {len(table.count):,} sensor-hours, {len(table.sensors)} sensors, "
         f"{int(table.wet.sum()):,} wet sensor-hours"

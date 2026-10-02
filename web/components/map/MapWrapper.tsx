@@ -29,7 +29,7 @@ interface MapWrapperProps {
   sensors: MapSensorItem[];
   parking: MapParkingItem[];
   summaryText?: string;
-  /** The city's feed looks faulty this hour: the top bar says so. */
+  /** The hour is flagged (lib/feed-anomaly.ts): the top bar says so. */
   feedAnomaly?: boolean;
   updatedAt: string | null;
   renderedAt: string;

@@ -16,6 +16,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 
 import type { SeriesPoint } from "@/lib/series";
+import { noComparisonLabel } from "@/lib/feed-anomaly";
 
 export interface SensorDetailData {
   location_id: number;
@@ -34,9 +35,11 @@ export interface SensorDetailData {
 interface SensorDetailSheetProps {
   sensor: SensorDetailData | null;
   onClose: () => void;
+  /** The hour is flagged (lib/feed-anomaly.ts): comparisons are withheld on purpose, not missing. */
+  comparisonPaused?: boolean;
 }
 
-export function SensorDetailSheet({ sensor, onClose }: SensorDetailSheetProps) {
+export function SensorDetailSheet({ sensor, onClose, comparisonPaused = false }: SensorDetailSheetProps) {
   if (!sensor) return null;
 
   const hasDelta = sensor.pctDelta !== null;
@@ -108,7 +111,7 @@ export function SensorDetailSheet({ sensor, onClose }: SensorDetailSheetProps) {
                 <div className="text-2xl font-bold font-mono text-slate-500">—</div>
               )}
               <span className="text-[10px] text-slate-400">
-                typical: {sensor.typical === null ? "no baseline yet" : sensor.typical.toLocaleString()}
+                typical: {sensor.typical === null ? noComparisonLabel(comparisonPaused, "no baseline yet") : sensor.typical.toLocaleString()}
               </span>
             </div>
           </div>

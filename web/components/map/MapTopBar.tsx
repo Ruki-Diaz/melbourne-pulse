@@ -43,14 +43,14 @@ export function MapTopBar({
         </div>
       )}
 
-      {/* The city's feed looks faulty: say so on every screen size (the summary line below is desktop only) */}
+      {/* The hour is flagged: say so on every screen size (the summary line below is desktop only) */}
       {feedAnomaly && (
         <div
           role="status"
           className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-200 text-xs sm:text-sm backdrop-blur-xl shadow-lg"
         >
           <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-          <span>{FEED_ANOMALY_TEXT} Sensors are shown without a comparison to typical.</span>
+          <span>{FEED_ANOMALY_TEXT} Comparisons with typical are paused.</span>
         </div>
       )}
 
@@ -69,11 +69,13 @@ export function MapTopBar({
           <FreshnessBadge freshness={freshness} className="hidden sm:inline-flex !text-xs !py-1" />
         </div>
 
-        {/* Center: Live Summary Sentence */}
-        <div className="hidden lg:flex items-center gap-2 text-xs text-slate-300 max-w-lg truncate">
-          <Sparkles className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-          <span className="truncate">{summaryText || "Waiting for the next update."}</span>
-        </div>
+        {/* Center: Live Summary Sentence (the banner above already carries it while the hour is flagged) */}
+        {!feedAnomaly && (
+          <div className="hidden lg:flex items-center gap-2 text-xs text-slate-300 max-w-lg truncate">
+            <Sparkles className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+            <span className="truncate">{summaryText || "Waiting for the next update."}</span>
+          </div>
+        )}
 
         {/* Right: Parking Layer Toggle */}
         <div className="flex items-center gap-2">

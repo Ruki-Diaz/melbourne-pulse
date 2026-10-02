@@ -4,6 +4,7 @@ import React from "react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { motion } from "framer-motion";
 import { TrendingUp, TrendingDown, Clock } from "lucide-react";
+import { noComparisonLabel } from "@/lib/feed-anomaly";
 
 export interface SensorSparklineData {
   location_id: number;
@@ -22,9 +23,11 @@ export interface SensorSparklineData {
 
 interface BusiestSensorsSparklinesProps {
   sensors: SensorSparklineData[];
+  /** The hour is flagged (lib/feed-anomaly.ts): comparisons are withheld on purpose, not missing. */
+  comparisonPaused?: boolean;
 }
 
-export function BusiestSensorsSparklines({ sensors }: BusiestSensorsSparklinesProps) {
+export function BusiestSensorsSparklines({ sensors, comparisonPaused = false }: BusiestSensorsSparklinesProps) {
   if (!sensors || sensors.length === 0) return null;
 
   return (
@@ -51,7 +54,7 @@ export function BusiestSensorsSparklines({ sensors }: BusiestSensorsSparklinesPr
           const isBusier = hasDelta && (sensor.pctDelta as number) >= 0;
           const badgeText = hasDelta
             ? `${isBusier ? "+" : ""}${(sensor.pctDelta as number).toFixed(0)}% ${isBusier ? "busier" : "quieter"}`
-            : "No baseline yet";
+            : noComparisonLabel(comparisonPaused, "No baseline yet");
 
           return (
             <motion.div
@@ -88,7 +91,7 @@ export function BusiestSensorsSparklines({ sensors }: BusiestSensorsSparklinesPr
                     {sensor.count.toLocaleString()}
                   </span>
                   <span className="text-xs text-slate-400">
-                    /hr (typical: {sensor.typical === null ? "n/a" : sensor.typical.toLocaleString()})
+                    /hr (typical: {sensor.typical === null ? noComparisonLabel(comparisonPaused, "n/a") : sensor.typical.toLocaleString()})
                   </span>
                 </div>
               </div>

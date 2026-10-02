@@ -169,7 +169,20 @@ def placebo_weather(forecasts: pd.DataFrame, days: int = PLACEBO_SHIFT_DAYS) -> 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--no-cache", action="store_true", help="re-download every month")
+    parser.add_argument(
+        "--no-quality-flags", action="store_true",
+        help="train without reading feed_quality: flagged hours are NOT excluded (for runs without database access)",
+    )
     args = parser.parse_args()
+    # Read the flags before any downloading, so a missing DATABASE_URL stops the run at once.
+    if args.no_quality_flags:
+        print("--no-quality-flags: hours flagged in feed_quality are NOT excluded from this run")
+        excluded: frozenset[int] = frozenset()
+    else:
+        try:
+            excluded = anomalies.flagged(required=True)
+        except anomalies.FlagsUnavailable as exc:
+            raise SystemExit(f"train.py: {exc}") from None
 
     today = date.today()
     print("loading history")
@@ -177,7 +190,6 @@ def main() -> int:
     hist = data.clean(raw)
     print(f"  {len(raw):,} raw rows -> {len(hist):,} clean hourly rows, {hist['location_id'].nunique()} sensors")
 
-    excluded = anomalies.flagged()
     dropped = flagged_rows(hist, excluded)
     print(
         f"  feed anomalies: {len(set(anomalies.keys(hist['date'], hist['hour'])[dropped].tolist()))} flagged hours "

@@ -194,8 +194,38 @@ def test_flagged_hours_are_never_training_examples_and_the_count_is_reported(cap
     assert train.flagged_rows(hist, frozenset()).sum() == 0
 
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    assert anomalies.flagged() == frozenset()  # no database: nothing excluded, and it says so
+    assert anomalies.flagged() == frozenset()  # predict.py's dry run: nothing excluded, and it says so
     assert "no feed-anomaly hours are excluded" in capsys.readouterr().out
+
+
+def test_training_refuses_to_run_without_the_flags_unless_told_to(monkeypatch, capsys):
+    import train
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(anomalies.FlagsUnavailable):
+        anomalies.flagged(required=True)
+
+    def no_download(*_, **__):
+        raise AssertionError("training must stop before it downloads anything")
+
+    monkeypatch.setattr(train.data, "download", no_download)
+    monkeypatch.setattr("sys.argv", ["train.py"])
+    with pytest.raises(SystemExit) as stopped:
+        train.main()
+    assert "DATABASE_URL is not set" in str(stopped.value) and "--no-quality-flags" in str(stopped.value)
+
+    # With the flag it goes ahead (and says the flagged hours are not excluded).
+    class Reached(Exception):
+        pass
+
+    def reached(*_, **__):
+        raise Reached
+
+    monkeypatch.setattr(train.data, "download", reached)
+    monkeypatch.setattr("sys.argv", ["train.py", "--no-quality-flags"])
+    with pytest.raises(Reached):
+        train.main()
+    assert "NOT excluded" in capsys.readouterr().out
 
 
 def test_forecast_does_not_use_a_flagged_hour_as_history():
