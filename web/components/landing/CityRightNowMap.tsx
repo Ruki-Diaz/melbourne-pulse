@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Activity, MapPin } from "lucide-react";
 import Link from "next/link";
+import { noComparisonLabel } from "@/lib/feed-anomaly";
 
 export interface SensorPoint {
   location_id: number;
@@ -25,9 +26,11 @@ export interface ProjectedSensorPoint extends SensorPoint {
 
 interface CityRightNowMapProps {
   sensors: SensorPoint[];
+  /** The hour is flagged (lib/feed-anomaly.ts): comparisons are withheld on purpose, not missing. */
+  comparisonPaused?: boolean;
 }
 
-export function CityRightNowMap({ sensors }: CityRightNowMapProps) {
+export function CityRightNowMap({ sensors, comparisonPaused = false }: CityRightNowMapProps) {
   const [hoveredSensor, setHoveredSensor] = useState<ProjectedSensorPoint | null>(null);
 
   // Map sensor coordinates to SVG viewBox (width 900, height 600)
@@ -117,7 +120,7 @@ export function CityRightNowMap({ sensors }: CityRightNowMapProps) {
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-slate-600" />
-            <span>No baseline</span>
+            <span>{noComparisonLabel(comparisonPaused, "No baseline")}</span>
           </div>
         </div>
       </div>
@@ -236,7 +239,7 @@ export function CityRightNowMap({ sensors }: CityRightNowMapProps) {
               </div>
               <div className="mt-1 pt-1.5 border-t border-white/10 flex items-center justify-between text-[11px]">
                 <span className="text-slate-400">
-                  Typical: {hoveredSensor.typical === null ? "no baseline yet" : hoveredSensor.typical.toLocaleString()}
+                  Typical: {hoveredSensor.typical === null ? noComparisonLabel(comparisonPaused, "no baseline yet") : hoveredSensor.typical.toLocaleString()}
                 </span>
                 {hoveredSensor.delta !== null && (
                   <span

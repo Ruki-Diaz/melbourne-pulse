@@ -15,7 +15,7 @@ interface StatStripProps {
   sensorCount: number;
   /** Sensors seen in the last 24 hours. More than sensorCount means some are still reporting. */
   sensorsActive: number;
-  /** The city's feed looks faulty this hour: the count is shown as raw, with a caveat. */
+  /** The hour is flagged (lib/feed-anomaly.ts): the count is shown as raw, with the notice under it. */
   feedAnomaly?: boolean;
   pctParkingFree: number | null;
   busiestSpot: {

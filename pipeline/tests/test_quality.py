@@ -103,8 +103,13 @@ def test_during_an_anomaly_the_sentence_is_the_warning_and_makes_no_comparison(m
     monkeypatch.setattr(summary, "ask_gemini", lambda _: pytest.fail("Gemini must not be asked during an anomaly"))
     result = summary.compose(stats)
     assert result["source"] == "template"
-    assert result["text"] == "The city's sensor feed looks unusual right now. Counts may be incomplete."
-    assert "quieter" not in result["text"] and "%" not in result["text"]
+    assert result["text"] == (
+        "Foot traffic is far below normal across most sensors. "
+        "This may be severe weather, a major event, or a sensor feed issue."
+    )
+    # It doesn't assume a fault, quote a comparison, or call the counts "people".
+    assert "quieter" not in result["text"] and "%" not in result["text"] and "people" not in result["text"]
+    assert "looks unusual" not in result["text"] and "incomplete" not in result["text"]
 
 
 def test_without_an_anomaly_the_sentence_is_unchanged():
@@ -155,10 +160,124 @@ def test_the_site_replaces_the_headline_and_withholds_every_comparison_during_an
     assert "quieter" not in flagged["headline"] and "%" not in flagged["headline"]
     # Raw counts stay; the typical each comparison would need is gone.
     assert [(s["location_id"], s["count"], s["typical"]) for s in flagged["sensors"]] == [(3, 12, None), (5, 9, None)]
-    assert "Raw count" in flagged["countNote"] and "incomplete" in flagged["countNote"]
+    assert flagged["countNote"] == summary.FEED_ANOMALY_TEXT  # the stat card carries the same sentence
+    # A withheld comparison says it is paused; it does not claim the sensor has no baseline.
+    assert flagged["labels"] == ["Comparison paused", "comparison paused", "Comparison paused", "comparison paused"]
 
 
 @needs_node
 def test_the_site_is_unchanged_when_the_hour_is_not_flagged():
     normal = site(None)
     assert normal["headline"] == STORED and normal["sensors"] == LIVE
+    assert normal["labels"] == ["No baseline yet", "no baseline yet", "No baseline", "n/a"]  # a real missing baseline
+
+
+# ------------------------------------- resolving a flagged hour against the city's figures
+
+import feed_quality  # noqa: E402
+import rain_effect  # noqa: E402
+
+
+def compared(ours: int, city: int, flagged: bool = True, hour=HOUR) -> dict:
+    return audit.compare_hours({hour: {1: ours}}, {hour: {1: city}}, {hour} if flagged else set())[0]
+
+
+def test_a_flagged_hour_is_real_if_the_city_agrees_and_a_fault_if_we_are_well_below():
+    assert audit.resolution(compared(1000, 1000)) == "confirmed_real"
+    assert audit.resolution(compared(950, 1000)) == "confirmed_real"  # 5% under: within tolerance
+    assert audit.resolution(compared(1050, 1000)) == "confirmed_real"  # 5% over
+    assert audit.resolution(compared(949, 1000)) == "confirmed_fault"  # more than 5% below the city's
+    assert audit.resolution(compared(300, 1000)) == "confirmed_fault"
+    assert audit.resolution(compared(1100, 1000)) is None  # above the city's: neither story fits
+    assert audit.resolution(compared(300, 1000, flagged=False)) is None  # only flagged hours are resolved
+
+
+class QualityTable:
+    """feed_quality as a dict, with just the two statements resolve() and assess_range() use."""
+
+    def __init__(self, rows: dict):
+        self.rows = rows  # hour -> {"anomaly": bool, "resolution": str | None}
+        self.depth = 0
+
+    def transaction(self):
+        return self
+
+    def __enter__(self):
+        self.depth += 1
+        return self
+
+    def __exit__(self, *_):
+        self.depth -= 1
+        return False
+
+    def execute(self, sql, params=None):
+        assert "update feed_quality set resolution" in sql and self.depth == 1
+        verdict, anomaly, hour = params
+        row = self.rows.get(hour)
+        hit = row is not None and row["resolution"] is None  # "where ... resolution is null"
+        if hit:
+            row.update(resolution=verdict, anomaly=anomaly)
+        return type("Result", (), {"rowcount": int(hit)})()
+
+
+def test_resolving_unflags_real_hours_keeps_faults_flagged_and_is_final():
+    h1, h2, h3, h4 = (HOUR + timedelta(hours=i) for i in range(4))
+    table = QualityTable({h: {"anomaly": True, "resolution": None} for h in (h1, h2, h3)})
+    table.rows[h4] = {"anomaly": True, "resolution": "confirmed_fault"}  # settled on an earlier day
+    hours = [compared(980, 1000, hour=h1), compared(400, 1000, hour=h2), compared(1000, 1000, flagged=False, hour=h3),
+             compared(1000, 1000, hour=h4)]
+
+    assert audit.resolve(table, hours) == {"confirmed_real": 1, "confirmed_fault": 1}
+    assert table.rows[h1] == {"anomaly": False, "resolution": "confirmed_real"}  # counts as normal data again
+    assert table.rows[h2] == {"anomaly": True, "resolution": "confirmed_fault"}  # stays excluded
+    assert table.rows[h3] == {"anomaly": True, "resolution": None}  # not offered as flagged: untouched
+    assert table.rows[h4] == {"anomaly": True, "resolution": "confirmed_fault"}  # a resolution is never overwritten
+    assert audit.resolve(table, hours) == {"confirmed_real": 0, "confirmed_fault": 0}  # running it again changes nothing
+
+
+class StoredCounts:
+    """Answers assess_range's three reads from fixed data."""
+
+    def __init__(self, counts, quality_rows, heavy=None):
+        self.counts, self.quality_rows, self.heavy = counts, quality_rows, heavy
+
+    def execute(self, sql, params=None):
+        if "from pedestrian_hourly" in sql:
+            rows = self.counts
+        elif "from feed_quality" in sql:
+            assert "resolution is not null" in sql  # resolved hours are always loaded
+            rows = self.quality_rows
+        else:
+            rows = []  # no rain_effect row
+        return type("Result", (), {"fetchall": lambda _: rows, "fetchone": lambda _: None, "__iter__": lambda _: iter(rows)})()
+
+
+def test_a_backfill_never_re_flags_an_hour_the_audit_confirmed_as_real():
+    weeks = [HOUR + timedelta(hours=i) - timedelta(weeks=k) for k in range(1, 9) for i in range(3)]
+    counts = [(lid, h, 1000) for h in weeks for lid in range(1, 41)]  # 40 sensors, typically 1,000
+    now_hours = [HOUR + timedelta(hours=i) for i in range(3)]
+    counts += [(lid, h, 100) for h in now_hours for lid in range(1, 41)]  # all three hours collapse
+    resolved_real = (now_hours[1], 40, 40, False, "low_counts", False)  # the audit unflagged the middle one
+
+    fresh = feed_quality.assess_range(StoredCounts(counts, []), now_hours[0], now_hours[2], {})
+    assert [q.anomaly for q in fresh] == [True, True, True]
+
+    kept = feed_quality.assess_range(StoredCounts(counts, [resolved_real]), now_hours[0], now_hours[2], {})
+    assert [q.hour for q in kept] == [now_hours[0], now_hours[2]]  # the resolved hour is not re-assessed or rewritten
+    assert [q.reason for q in kept] == ["low_counts", "low_counts"]  # and the hour after it starts afresh, not "holding"
+
+
+def test_rain_effect_leaves_out_flagged_hours_but_keeps_ones_confirmed_real():
+    storm, fault = HOUR, HOUR + timedelta(hours=1)
+    rows = [(1, DAY, 15, storm, 300), (2, DAY, 15, storm, 280), (1, DAY, 16, fault, 10), (1, DAY, 17, fault + timedelta(hours=1), 900)]
+
+    class Flags:
+        def execute(self, sql):
+            assert sql == "select hour from feed_quality where anomaly"
+            return [(fault,)]  # the storm hour was confirmed real, so its anomaly flag is already false
+
+    flagged = rain_effect.flagged_hours(Flags())
+    assert flagged == {fault}
+    kept = rain_effect.without_flagged(rows, flagged)
+    assert [r[3] for r in kept] == [storm, storm, fault + timedelta(hours=1)]  # the real storm stays in as rain evidence
+    assert rain_effect.without_flagged(rows, set()) == rows

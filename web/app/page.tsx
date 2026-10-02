@@ -171,10 +171,10 @@ export default async function HomePage() {
       />
 
       {/* 3. The City Right Now (SVG Real Coordinates) */}
-      <CityRightNowMap sensors={citySensors} />
+      <CityRightNowMap sensors={citySensors} comparisonPaused={feedAnomaly !== null} />
 
       {/* 4. Right Now vs Usual (6 Recharts Sparklines) */}
-      <BusiestSensorsSparklines sensors={sparklineCards} />
+      <BusiestSensorsSparklines sensors={sparklineCards} comparisonPaused={feedAnomaly !== null} />
 
       {/* 5. The next 24 hours, predicted (CBD-wide) */}
       <CBDTomorrowForecast data={cbdForecastData} calloutText={forecastCallout} />

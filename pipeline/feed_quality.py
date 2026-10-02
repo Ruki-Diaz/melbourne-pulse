@@ -1,10 +1,14 @@
-"""Check recent hours for a fault in the city's sensor feed and store the result.
+"""Flag hours when most sensors read far below their typical at once, and store the result.
 
 Runs in the hourly job after fetch.py. For each of the last few finished hours
 it compares every sensor with its typical count (pulse/quality.py) and writes
 one row to feed_quality. The website, the summary sentence and the forecast
-model read that table: a flagged hour is shown with a warning instead of "X%
+model read that table: a flagged hour is shown with a notice instead of "X%
 quieter", and is left out of the forecast's history and of future training.
+
+A flag doesn't say why: severe weather, a major event and a fault in the
+city's feed all look the same in the moment. audit.py --resolve settles it a
+day later against the city's published hourly totals.
 
     python feed_quality.py                # the last 3 finished hours (hourly job)
     python feed_quality.py --backfill 14  # re-assess the last 14 days from stored counts
@@ -69,10 +73,14 @@ def assess_range(conn, first: datetime, last: datetime, rain_by_hour: dict[datet
         at = local(hour)
         history[(at.weekday(), at.hour)][lid][(at.date(), hour)] = count
         by_hour[hour][lid] = count
+    # Everything already decided: hours before this range, and any hour audit.py has
+    # resolved against the city's figures. A resolution is final and is never re-assessed.
     known = {
         hour: Quality(hour, judged, low, anomaly, reason, heavy)
         for hour, judged, low, anomaly, reason, heavy in conn.execute(
-            "select hour, sensors_judged, sensors_low, anomaly, reason, heavy_rain from feed_quality where hour < %s", (first,)
+            "select hour, sensors_judged, sensors_low, anomaly, reason, heavy_rain from feed_quality "
+            "where hour < %s or resolution is not null",
+            (first,),
         )
     }
     flagged = {hour for hour, q in known.items() if q.anomaly}
@@ -82,6 +90,10 @@ def assess_range(conn, first: datetime, last: datetime, rain_by_hour: dict[datet
     previous = known.get(first - HOUR)
     hour = first
     while hour <= last:
+        if hour in known:  # resolved: keep the stored verdict
+            previous = known[hour]
+            hour += HOUR
+            continue
         counts = {lid: c for lid, c in by_hour.get(hour, {}).items() if settled is None or settled(lid, hour)}
         previous = quality.assess(
             hour, local(hour).date(), counts, typicals(history, flagged, hour),
@@ -104,6 +116,7 @@ def save(conn, assessments: list[Quality]) -> None:
               set sensors_judged = excluded.sensors_judged, sensors_low = excluded.sensors_low,
                   share_low = excluded.share_low, anomaly = excluded.anomaly, reason = excluded.reason,
                   heavy_rain = excluded.heavy_rain, checked_at = excluded.checked_at
+              where feed_quality.resolution is null
             """,
             [(q.hour, q.judged, q.low, q.share, q.anomaly, q.reason, q.heavy_rain) for q in assessments],
         )
@@ -145,7 +158,7 @@ def main() -> int:
             first = floor_hour(now) - timedelta(days=args.backfill)
             if not args.dry_run:
                 with conn.transaction():  # a backfill starts clean, so old flags can't steer the new ones
-                    conn.execute("delete from feed_quality where hour >= %s", (first,))
+                    conn.execute("delete from feed_quality where hour >= %s and resolution is null", (first,))
             try:
                 rain = observed_rain(first, newest)
             except Exception as exc:  # noqa: BLE001 - rain only relaxes the test; without it the test is stricter

@@ -92,8 +92,9 @@ create table if not exists rain_effect (
 
 -- One row per finished hour: does the city's live feed look faulty? (pipeline/feed_quality.py,
 -- rules in pipeline/pulse/quality.py.) anomaly = most sensors read under half their typical
--- at once, not explained by heavy rain or a public holiday. The website shows a warning
--- instead of a comparison for such an hour, and the forecast model leaves it out.
+-- at once, not explained by heavy rain or a public holiday. The cause isn't known then
+-- (severe weather, a major event, or a feed fault). The website shows a notice instead of
+-- a comparison for such an hour, and the forecast model leaves it out.
 create table if not exists feed_quality (
   hour           timestamptz primary key,
   sensors_judged integer     not null check (sensors_judged >= 0),  -- sensors with a usable typical
@@ -104,6 +105,12 @@ create table if not exists feed_quality (
   heavy_rain     boolean     not null default false,                 -- thresholds were relaxed for heavy rain
   checked_at     timestamptz not null default now()
 );
+-- What the city's published hourly totals later said about a flagged hour
+-- (pipeline/audit.py --resolve, daily). null = not compared yet.
+--   confirmed_real   ours matched the city's: really that quiet. anomaly is set back to false.
+--   confirmed_fault  ours were well below the city's: the live feed was incomplete. Stays flagged.
+alter table feed_quality add column if not exists resolution text
+  check (resolution in ('confirmed_real', 'confirmed_fault'));
 create index if not exists feed_quality_anomaly on feed_quality (hour) where anomaly;
 
 -- Read-only role for the website. No password here: the repo is public.

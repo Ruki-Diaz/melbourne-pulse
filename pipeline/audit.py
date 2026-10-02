@@ -15,11 +15,14 @@ That is the check that tells a fault in the live feed from a real change: if
 the city's hourly figures are higher than what the live feed gave us, the live
 feed was incomplete.
 
-Read-only: it writes nothing. Parking is a live reading, so the recomputed
+Without --resolve it is read-only. With --resolve (run daily before the
+forecast) it does only that last comparison and records the outcome for each
+flagged hour: confirmed_real (unflagged) or confirmed_fault (stays flagged). Parking is a live reading, so the recomputed
 figure is as of now while the database's is from the last hourly run.
 
     python audit.py                      # needs DATABASE_URL
     python audit.py --site https://melbourne-pulse-au.vercel.app
+    python audit.py --resolve            # writes resolutions to feed_quality
 """
 
 from __future__ import annotations
@@ -48,6 +51,7 @@ HOURLY_TOLERANCE = 0.05
 # Parking is a live reading: "now" may differ from the last hourly run by a few points.
 PARKING_TOLERANCE_PTS = 5
 HOURLY_DAYS = 4
+RESOLVE_DAYS = 60  # how far back an unresolved flag is still looked up
 
 
 def recompute_counts(hour: datetime) -> dict[int, int]:
@@ -127,16 +131,69 @@ def city_hourly(first: date) -> dict[datetime, dict[int, int]]:
     return out
 
 
-def report_hourly(conn) -> bool:
-    """Print the comparison with the city's hourly dataset. True if every compared hour matched."""
-    first = local(datetime.now(UTC)).date() - timedelta(days=HOURLY_DAYS)
+def resolution(row: dict) -> str | None:
+    """What the city's published total says about a flagged hour.
+
+      confirmed_real   ours agrees with the city's within the tolerance: the low
+                       counts are what the city recorded too, so the hour was
+                       really that quiet (a storm, an event). It is unflagged and
+                       counts as normal data again.
+      confirmed_fault  ours is more than the tolerance below the city's: the live
+                       feed was incomplete. The hour stays flagged.
+
+    None for an hour that isn't flagged, or where ours is above the city's
+    (neither explanation fits; it is reported as a mismatch and left as it is).
+    """
+    if not row["flagged"]:
+        return None
+    if abs(row["gap"]) <= HOURLY_TOLERANCE:
+        return "confirmed_real"
+    return "confirmed_fault" if row["gap"] < 0 else None
+
+
+def hourly_comparison(conn) -> tuple[list[dict], set[datetime]]:
+    """Our stored hourly totals beside the city's hourly dataset, and the hours still flagged and unresolved."""
+    today = local(datetime.now(UTC)).date()
+    # Unresolved flags are compared however old they are (within what the tables keep).
+    flagged = {
+        row[0]
+        for row in conn.execute(
+            "select hour from feed_quality where anomaly and resolution is null and hour >= %s",
+            (today - timedelta(days=RESOLVE_DAYS),),
+        )
+    }
+    first = min([today - timedelta(days=HOURLY_DAYS)] + [local(h).date() for h in flagged])
     ours: dict[datetime, dict[int, int]] = defaultdict(dict)
     for lid, hour, count in conn.execute(
         "select location_id, hour, count from pedestrian_hourly where not is_partial and hour >= %s", (first,)
     ):
         ours[hour][lid] = count
-    flagged = {row[0] for row in conn.execute("select hour from feed_quality where anomaly and hour >= %s", (first,))}
-    hours = compare_hours(ours, city_hourly(first), flagged)
+    return compare_hours(ours, city_hourly(first), flagged), flagged
+
+
+def resolve(conn, hours: list[dict]) -> dict[str, int]:
+    """Record what the city's figures say about each flagged hour that can now be compared.
+
+    A confirmed_real hour is unflagged (anomaly = false), so the site's typical,
+    the rain effect and the forecast model use it again. A confirmed_fault hour
+    stays flagged. Only unresolved rows are touched, so a resolution is final.
+    """
+    done = {"confirmed_real": 0, "confirmed_fault": 0}
+    with conn.transaction():
+        for row in hours:
+            verdict = resolution(row)
+            if verdict is None:
+                continue
+            changed = conn.execute(
+                "update feed_quality set resolution = %s, anomaly = %s, checked_at = now() where hour = %s and resolution is null",
+                (verdict, verdict == "confirmed_fault", row["hour"]),
+            ).rowcount
+            done[verdict] += changed
+    return done
+
+
+def report_hourly(hours: list[dict], flagged: set[datetime]) -> bool:
+    """Print the comparison with the city's hourly dataset. True if every compared hour matched."""
     bad = [h for h in hours if h["mismatch"]]
     print(f"\nour hourly totals vs the city's hourly dataset: {len(hours)} hours compared, {len(bad)} mismatched (over {HOURLY_TOLERANCE:.0%})")
     if hours:
@@ -144,21 +201,40 @@ def report_hourly(conn) -> bool:
     for h in bad:
         print(
             f"  MISMATCH {local(h['hour']):%a %d %b %H:00}: ours {h['ours']:,} vs city {h['city']:,} "
-            f"({h['gap']:+.0%}, {h['sensors']} sensors){'  [flagged as a feed anomaly]' if h['flagged'] else ''}"
+            f"({h['gap']:+.0%}, {h['sensors']} sensors){'  [flagged]' if h['flagged'] else ''}"
         )
+    for verdict, meaning in (
+        ("confirmed_real", "match the city's own figures: really that quiet, to be unflagged"),
+        ("confirmed_fault", "are well below the city's own figures: the live feed was incomplete, to stay flagged"),
+    ):
+        found = [h for h in hours if resolution(h) == verdict]
+        if found:
+            print(f"  {len(found)} flagged hours {meaning} ({local(found[0]['hour']):%a %d %b %H:00} to {local(found[-1]['hour']):%a %d %b %H:00})")
     waiting = sorted(flagged - {h["hour"] for h in hours})
     if waiting:
         print(
             f"  {len(waiting)} flagged hours ({local(waiting[0]):%a %d %b %H:00} to {local(waiting[-1]):%a %d %b %H:00}) are not in the "
-            "city's hourly dataset yet. Run this again tomorrow."
-        )
-    agreed = [h for h in hours if h["flagged"] and not h["mismatch"]]
-    if agreed:
-        print(
-            f"  {len(agreed)} flagged hours match the city's own hourly figures: the low counts are in the city's data too, "
-            "not only in the live feed."
+            "city's hourly dataset yet. They will be resolved once it publishes them."
         )
     return not bad
+
+
+def resolve_flagged() -> int:
+    """`--resolve`: compare flagged hours with the city's figures and record the outcome.
+
+    Runs before the daily forecast. A problem reaching the city's API is logged
+    and the run still exits 0: an unresolved hour simply stays flagged for another day.
+    """
+    with db.connect() as conn:
+        try:
+            hours, flagged = hourly_comparison(conn)
+        except Exception as exc:  # noqa: BLE001 - never block the forecast on this
+            print(f"[resolve] could not compare with the city's hourly dataset ({exc}); nothing resolved", file=sys.stderr)
+            return 0
+        report_hourly(hours, flagged)
+        done = resolve(conn, hours)
+    print(f"[resolve] {done['confirmed_real']} hours confirmed real and unflagged; {done['confirmed_fault']} confirmed as a feed fault")
+    return 0
 
 
 def read_site(url: str) -> dict:
@@ -182,7 +258,13 @@ def read_site(url: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--site", default=SITE, help="live site to read (default: %(default)s)")
+    parser.add_argument(
+        "--resolve", action="store_true",
+        help="only compare flagged hours with the city's hourly dataset and record the outcome in feed_quality",
+    )
     args = parser.parse_args()
+    if args.resolve:
+        return resolve_flagged()
 
     with db.connect() as conn:
         updated, payload = db.get_latest(conn, "pedestrian")
@@ -190,7 +272,7 @@ def main() -> int:
         summary = db.get_latest(conn, "summary")[1]
         parking_hour, pct_free = conn.execute("select hour, pct_free from parking_hourly order by hour desc limit 1").fetchone()
         anomaly = db.feed_anomaly(conn, parse_ts(payload["hour"]))
-        hourly_ok = report_hourly(conn)
+        hourly_ok = report_hourly(*hourly_comparison(conn))
     hour = parse_ts(payload["hour"])
     stored = [s for s in payload["sensors"] if s.get("settled", True)]
     stored_ids = {s["location_id"] for s in stored}

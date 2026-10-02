@@ -31,6 +31,16 @@ jobs:
       - name: Tests
         run: pytest -q
 
+      # Settle yesterday's flagged hours against the city's published hourly totals:
+      # confirmed real (unflagged, usable as history) or confirmed feed fault (stays
+      # excluded). Runs first so the forecast below uses the outcome. It never fails
+      # the job on a city API problem.
+      - name: Resolve flagged hours
+        working-directory: pipeline
+        run: python audit.py --resolve
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       - name: Forecast next 24 hours
         run: python predict.py
         env:

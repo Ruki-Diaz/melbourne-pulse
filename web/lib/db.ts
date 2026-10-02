@@ -89,8 +89,8 @@ export type HourlyHistoryRow = {
 };
 
 /**
- * The feed-quality flag for one hour: set if the pipeline judged the city's
- * feed faulty then (most sensors under half their typical at once), else null.
+ * The feed-quality flag for one hour: set if the pipeline flagged it (most
+ * sensors under half their typical at once, cause unknown), else null.
  */
 export async function getFeedAnomaly(hourIso: string | null | undefined): Promise<FeedAnomaly | null> {
   const query = sql();
