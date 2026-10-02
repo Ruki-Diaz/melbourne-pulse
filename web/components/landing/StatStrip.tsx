@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Users, Car, Flame, TrendingUp } from "lucide-react";
 import { motion, useInView, useReducedMotion } from "framer-motion";
 
+import { FEED_ANOMALY_COUNT_NOTE } from "@/lib/feed-anomaly";
 import { melbourneHourLabel } from "@/lib/freshness";
 import { useFreshness } from "@/lib/useFreshness";
 
@@ -14,6 +15,8 @@ interface StatStripProps {
   sensorCount: number;
   /** Sensors seen in the last 24 hours. More than sensorCount means some are still reporting. */
   sensorsActive: number;
+  /** The city's feed looks faulty this hour: the count is shown as raw, with a caveat. */
+  feedAnomaly?: boolean;
   pctParkingFree: number | null;
   busiestSpot: {
     name: string;
@@ -79,6 +82,7 @@ export function StatStrip({
   totalPedestrians,
   sensorCount,
   sensorsActive,
+  feedAnomaly = false,
   pctParkingFree,
   busiestSpot,
   hourIso,
@@ -109,9 +113,9 @@ export function StatStrip({
           <div className="text-3xl sm:text-4xl text-white font-['Space_Grotesk',sans-serif] mb-1">
             {totalPedestrians === null ? <Empty /> : <AnimatedCounter value={totalPedestrians} />}
           </div>
-          <p className="text-xs text-slate-400 flex items-center gap-1.5">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-teal-400" />
-            {totalPedestrians === null || !hour ? WAITING : `Across ${sensorCount < sensorsActive * 0.8 ? `${sensorCount} of ${sensorsActive} sensors so far` : `${sensorCount} sensors`}, in the hour from ${hour}`}
+          <p className={`text-xs flex items-center gap-1.5 ${feedAnomaly && totalPedestrians !== null ? "text-amber-300" : "text-slate-400"}`}>
+            <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${feedAnomaly && totalPedestrians !== null ? "bg-amber-400" : "bg-teal-400"}`} />
+            {feedAnomaly && totalPedestrians !== null ? FEED_ANOMALY_COUNT_NOTE : totalPedestrians === null || !hour ? WAITING : `Across ${sensorCount < sensorsActive * 0.8 ? `${sensorCount} of ${sensorsActive} sensors so far` : `${sensorCount} sensors`}, in the hour from ${hour}`}
           </p>
         </motion.div>
 

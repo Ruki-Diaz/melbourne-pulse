@@ -23,6 +23,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
+import anomalies
 import data  # also puts ../pipeline on sys.path
 import features
 import weather
@@ -55,10 +56,12 @@ def forecast(
     booster: lgb.Booster,
     columns: list[str],
     forecasts: pd.DataFrame | None = None,
+    excluded: frozenset[int] = frozenset(),
 ) -> pd.DataFrame:
+    """`excluded`: hours flagged as a feed anomaly, never used as history (see anomalies.py)."""
     targets = targets_for(history, now)
-    X = features.build(targets, history, columns, forecasts)
-    baseline = features.build(targets, history, ["typical_8w"])["typical_8w"].to_numpy()
+    X = features.build(targets, history, columns, forecasts, excluded)
+    baseline = features.build(targets, history, ["typical_8w"], excluded=excluded)["typical_8w"].to_numpy()
     return pd.DataFrame(
         {
             "sensor_id": targets["location_id"],
@@ -137,8 +140,14 @@ def main() -> int:
     today = local(now).date()
     print(f"loading {HISTORY_WEEKS} weeks of history")
     history = data.clean(data.download(today - timedelta(weeks=HISTORY_WEEKS), today))
+    excluded = anomalies.flagged()
+    in_history = np.isin(anomalies.keys(history["date"], history["hour"]), np.fromiter(excluded, dtype="int64", count=len(excluded)))
+    print(
+        f"feed anomalies: {len(set(anomalies.keys(history['date'], history['hour'])[in_history].tolist()))} flagged hours in the "
+        f"history ({int(in_history.sum()):,} sensor-hours) left out of the lag and typical features"
+    )
     model_file, columns, forecasts = choose_model(meta, history, now)
-    rows = forecast(history, now, load_model(model_file), columns, forecasts)
+    rows = forecast(history, now, load_model(model_file), columns, forecasts, excluded)
 
     first, last = local(rows["hour"].min()), local(rows["hour"].max())
     print(
@@ -148,7 +157,7 @@ def main() -> int:
     totals = rows.groupby("hour")[["predicted_count", "baseline_count"]].sum()
     peak = totals["predicted_count"].idxmax()
     print(
-        f"busiest hour {local(peak):%a %H:00}: {totals.loc[peak, 'predicted_count']:,.0f} people forecast "
+        f"busiest hour {local(peak):%a %H:00}: {totals.loc[peak, 'predicted_count']:,.0f} pedestrian counts forecast "
         f"across all sensors (typical {totals.loc[peak, 'baseline_count']:,.0f})"
     )
 

@@ -80,6 +80,13 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
+      # Flags hours when the city's feed itself looks faulty, before anything describes them.
+      - name: Feed quality
+        if: ${{ !cancelled() && steps.tests.outcome == 'success' }}
+        run: python feed_quality.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       # Still runs if one feed failed (fetch exits 1 but saves the others).
       - name: AI summary
         if: ${{ !cancelled() && steps.tests.outcome == 'success' }}

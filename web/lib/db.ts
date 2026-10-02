@@ -2,6 +2,8 @@ import "server-only";
 
 import { neon } from "@neondatabase/serverless";
 
+import type { FeedAnomaly } from "./feed-anomaly";
+
 /**
  * Read-only Neon connection over HTTP, for server components only.
  * `server-only` makes the build fail if this is ever imported into client code,
@@ -85,6 +87,27 @@ export type HourlyHistoryRow = {
   count: number;
   is_partial: boolean;
 };
+
+/**
+ * The feed-quality flag for one hour: set if the pipeline judged the city's
+ * feed faulty then (most sensors under half their typical at once), else null.
+ */
+export async function getFeedAnomaly(hourIso: string | null | undefined): Promise<FeedAnomaly | null> {
+  const query = sql();
+  if (!query || !hourIso) return null;
+  try {
+    const rows = await query`
+      select sensors_judged, sensors_low, share_low from feed_quality
+      where hour = ${hourIso} and anomaly`;
+    const row = rows[0];
+    return row
+      ? { sensorsJudged: Number(row.sensors_judged), sensorsLow: Number(row.sensors_low), shareLow: row.share_low === null ? null : Number(row.share_low) }
+      : null;
+  } catch (error) {
+    console.error("Error fetching feed quality:", error);
+    return null;
+  }
+}
 
 /** One `latest` row, or null if the database isn't configured or has no row yet. */
 export async function getLatest<T>(source: "parking" | "pedestrian" | "sensors" | "summary") {

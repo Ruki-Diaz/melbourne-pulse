@@ -80,12 +80,22 @@ def typicals_for(conn: psycopg.Connection, target: datetime) -> dict[int, float]
         from pedestrian_hourly
         where hour >= %(since)s and hour < %(target)s
           and not is_partial
+          -- an hour when the feed itself looked faulty says nothing about what is typical
+          and not exists (select 1 from feed_quality q where q.hour = pedestrian_hourly.hour and q.anomaly)
           and extract(hour from hour at time zone 'Australia/Melbourne')
               = extract(hour from %(target)s at time zone 'Australia/Melbourne')
         """,
         {"since": history_since(target), "target": target},
     ).fetchall()
     return typical_by_sensor(rows, target)
+
+
+def feed_anomaly(conn: psycopg.Connection, hour: datetime) -> dict | None:
+    """The feed-quality assessment for `hour` if it was flagged as an anomaly, else None."""
+    row = conn.execute(
+        "select sensors_judged, sensors_low, share_low, reason from feed_quality where hour = %s and anomaly", (hour,)
+    ).fetchone()
+    return dict(zip(("judged", "low", "share", "reason"), row)) if row else None
 
 
 def upcoming_weather(conn: psycopg.Connection, hours: int = 12) -> list[dict]:

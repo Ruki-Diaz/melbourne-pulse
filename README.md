@@ -121,7 +121,9 @@ The working is in [Free-tier budget](#free-tier-budget) below.
   of Open-Meteo forecast. `summary.py` sends a few stats (never raw data) to
   Gemini Flash for a one-sentence summary, checks every number, time and rain
   claim in the reply against the data, and falls back to a template if anything
-  is off. `audit.py` recomputes the homepage numbers straight from the city's
+  is off. `feed_quality.py` flags hours when the city's feed itself looks faulty
+  (most sensors under half their typical at once): the site then shows a
+  warning instead of a comparison, and the model leaves those hours out. `audit.py` recomputes the homepage numbers straight from the city's
   API to check them. `seed_history.py` backfills 8 weeks of history once, so "busier
   than usual" works from day one.
 - **`model/`** (Python, LightGBM). `train.py` learns from two years of hourly
@@ -186,6 +188,7 @@ measured **20 MB** (3.9% of 0.5 GB).
 | `latest` | 4 rows. The 6,324-bay parking payload is 575 kB of JSON but 100 kB once Postgres compresses it. Measured 216 kB after vacuum. | 0.2 MB |
 | `forecasts` | 99 sensors × 36 h, plus 2 days kept | 0.5 MB |
 | `weather_forecast`, `rain_effect` | 48 forecast hours plus 2 days kept; about 110 rain-effect rows | under 0.1 MB |
+| `feed_quality` | one small row an hour: 8,760 a year × ~60 B | 0.5 MB a year |
 | Postgres system catalogs | Measured size of an empty database | ~7.3 MB |
 | **Total** | | **32–41 MB** |
 
@@ -289,7 +292,7 @@ cd pipeline
 cd ../model
 ../.venv/bin/pip install -r requirements-dev.txt
 ../.venv/bin/python -m pytest -q          # includes a no-future-leakage test
-../.venv/bin/python train.py              # ~10 min; rewrites model*.txt.gz, REPORT.md, chart.png
+DATABASE_URL='…' ../.venv/bin/python train.py              # ~10 min; rewrites model*.txt.gz, REPORT.md, chart.png
 ../.venv/bin/python predict.py --dry-run
 
 # web

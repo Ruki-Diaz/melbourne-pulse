@@ -9,6 +9,8 @@ Two rules protect the sentence from saying something the data doesn't:
 - Only sensors that have finished reporting the hour are counted, and the
   comparison with "usual" uses the same sensors on both sides. If fewer than
   80% of sensors have reported, the sentence says so.
+- If the hour was flagged as a feed anomaly (feed_quality.py), the sentence is
+  a fixed warning: no comparison, and Gemini is not asked.
 - Rain is mentioned only if the stored forecast has a rain-risk hour in the
   next 6, and its start time and percentage must match the forecast exactly.
 """
@@ -33,6 +35,9 @@ MAX_WORDS = 30
 # "high demand"; 3.5 is the fallback. The template is the last resort.
 GEMINI_MODELS = os.getenv("GEMINI_MODELS", "gemini-3.8-flash,gemini-3.5-flash").split(",")
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+# Said instead of any comparison when the feed itself looks faulty (feed_quality.py).
+FEED_ANOMALY_TEXT = "The city's sensor feed looks unusual right now. Counts may be incomplete."
 
 # Below this share of sensors reporting, the sentence says so (and is always the template).
 MIN_COVERAGE = 0.8
@@ -173,7 +178,13 @@ def build_stats(
     parking: dict | None,
     weather: list[dict] | None = None,
     now: datetime | None = None,
+    anomaly: dict | None = None,
 ) -> dict:
+    """`anomaly` is the feed-quality flag for the pedestrian hour (db.feed_anomaly), if it was flagged.
+
+    With it set, no comparison with typical is made at all: the counts are kept
+    as raw numbers and the sentence becomes a plain warning.
+    """
     stats: dict = {}
     if pedestrian and pedestrian.get("sensors"):
         hour = parse_ts(pedestrian["hour"])
@@ -195,7 +206,7 @@ def build_stats(
             low_coverage=len(rows) < MIN_COVERAGE * active,
             vs_typical_pct=(
                 round((sum(r["count"] for r in known) / typical_total - 1) * 100)
-                if typical_total
+                if typical_total and not anomaly
                 else None
             ),
             busiest=[
@@ -208,6 +219,8 @@ def build_stats(
             pct_bays_free=round(parking["pct_free"] * 100),
             bays_reporting=parking["bays_free"] + parking["bays_occupied"],
         )
+    if anomaly and "pedestrians" in stats:
+        stats["feed_anomaly"] = {"share": anomaly.get("share"), "judged": anomaly.get("judged"), "low": anomaly.get("low")}
     rain = rain_outlook(weather, now) if now is not None else None
     if rain:
         stats["rain"] = rain
@@ -222,7 +235,10 @@ def template(stats: dict) -> str:
     """Deterministic fallback sentence; drops detail until it fits 30 words.
 
     Low sensor coverage and rain are never dropped: every candidate keeps them.
+    During a feed anomaly the sentence is the fixed warning and nothing else.
     """
+    if stats.get("feed_anomaly"):
+        return FEED_ANOMALY_TEXT
     if stats.get("sensors"):
         when = f"a typical {stats['day']} at {stats['hour_label']}"
         pct = stats["vs_typical_pct"]
@@ -309,8 +325,12 @@ def ask_gemini(stats: dict) -> str | None:
 
 
 def compose(stats: dict) -> dict:
-    # With few sensors reporting, the sentence has to say so: only the template guarantees that.
-    if stats.get("low_coverage") or not stats.get("sensors", 1):
+    # During a feed anomaly, or with few sensors reporting, the sentence has to say so:
+    # only the template guarantees that, so Gemini is not asked.
+    if stats.get("feed_anomaly"):
+        print("feed anomaly; using the fixed warning")
+        sentence = None
+    elif stats.get("low_coverage") or not stats.get("sensors", 1):
         print("low sensor coverage; using the template")
         sentence = None
     else:
@@ -360,6 +380,7 @@ def main() -> int:
             dict(zip(("bays_free", "bays_occupied", "bays_stale", "pct_free"), parking)) if parking else None,
             db.upcoming_weather(conn),
             datetime.now(UTC),
+            db.feed_anomaly(conn, parse_ts(pedestrian[1]["hour"])) if pedestrian else None,
         )
         summary = compose(stats)
         with conn.transaction():

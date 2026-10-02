@@ -22,6 +22,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
+import anomalies
 import data
 import features
 import report
@@ -70,9 +71,13 @@ def fit(X, y, objective, rounds, valid=None):
 
 
 def run(hist: pd.DataFrame, columns: list[str], forecasts: pd.DataFrame | None = None,
-        wet: np.ndarray | None = None) -> dict:
-    """Train and score one feature set. `wet` marks the hist rows that count as wet hours."""
-    X_all = features.build(hist, hist, columns, forecasts)
+        wet: np.ndarray | None = None, excluded: frozenset[int] = frozenset()) -> dict:
+    """Train and score one feature set. `wet` marks the hist rows that count as wet hours.
+
+    `excluded` holds the hours flagged as a feed anomaly: they are never
+    training, validation or test examples, and never another hour's history.
+    """
+    X_all = features.build(hist, hist, columns, forecasts, excluded)
     y_all = hist["count"].to_numpy(dtype=float)
     d = hist["date"].reset_index(drop=True)
     last = d.max()
@@ -80,6 +85,7 @@ def run(hist: pd.DataFrame, columns: list[str], forecasts: pd.DataFrame | None =
     val_start = test_start - pd.Timedelta(weeks=VAL_WEEKS)
 
     usable = (X_all["weeks_available"] > 0).to_numpy()  # need at least one past week
+    usable &= ~flagged_rows(hist, excluded)
     train = usable & (d < val_start).to_numpy()
     val = usable & ((d >= val_start) & (d < test_start)).to_numpy()
     test = usable & (d >= test_start).to_numpy()
@@ -149,6 +155,12 @@ def run(hist: pd.DataFrame, columns: list[str], forecasts: pd.DataFrame | None =
     }
 
 
+def flagged_rows(hist: pd.DataFrame, excluded: frozenset[int]) -> np.ndarray:
+    """Which rows of `hist` fall in an hour flagged as a feed anomaly."""
+    known = np.fromiter(excluded, dtype="int64", count=len(excluded))
+    return np.isin(anomalies.keys(hist["date"], hist["hour"]), known)
+
+
 def placebo_weather(forecasts: pd.DataFrame, days: int = PLACEBO_SHIFT_DAYS) -> pd.DataFrame:
     """The same forecasts attached to dates `days` later, so every hour gets the wrong weather."""
     return forecasts.assign(date=forecasts["date"] + pd.Timedelta(days=days))
@@ -165,6 +177,13 @@ def main() -> int:
     hist = data.clean(raw)
     print(f"  {len(raw):,} raw rows -> {len(hist):,} clean hourly rows, {hist['location_id'].nunique()} sensors")
 
+    excluded = anomalies.flagged()
+    dropped = flagged_rows(hist, excluded)
+    print(
+        f"  feed anomalies: {len(set(anomalies.keys(hist['date'], hist['hour'])[dropped].tolist()))} flagged hours "
+        f"in this history; {int(dropped.sum()):,} sensor-hours excluded from training and from other hours' history"
+    )
+
     first, last = hist["date"].min().date(), hist["date"].max().date()
     forecasts = {lead: weather.history(first, last, lead, cache=not args.no_cache) for lead in LEADS}
     rain = {
@@ -177,7 +196,7 @@ def main() -> int:
 
     def attempt(label: str, columns: list[str], lead: str | None = None) -> dict:
         print(f"training with {label} features")
-        outcome = run(hist, columns, forecasts.get(lead), wet)
+        outcome = run(hist, columns, forecasts.get(lead), wet, excluded)
         outcome["label"], outcome["lead"] = label, lead
         attempts.append(outcome)
         r = outcome["results"]
@@ -221,7 +240,7 @@ def main() -> int:
     # Placebo: same features and settings, but weather from the wrong fortnight. If the
     # weather columns only helped by giving the model more to fit, this would win too.
     print(f"training the placebo (weather shifted {PLACEBO_SHIFT_DAYS} days)")
-    placebo = run(hist, control["columns"] + features.WEATHER, placebo_weather(forecasts["day1"]), wet)
+    placebo = run(hist, control["columns"] + features.WEATHER, placebo_weather(forecasts["day1"]), wet, excluded)
     decision["placebo"] = {
         "shift_days": PLACEBO_SHIFT_DAYS,
         "mae": placebo["results"][report.LGBM]["mae"],
