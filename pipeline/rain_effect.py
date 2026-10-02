@@ -17,9 +17,10 @@ Method (matched wet vs dry):
   - 95% interval: bootstrap over whole days (400 resamples, fixed seed), with
     the dry-hour means recomputed in every resample.
   - reliable = at least 100 wet hours AND the interval excludes zero.
-  - Hours still flagged in feed_quality (a possible feed fault) are left out.
-    Hours the daily audit confirmed as real are kept: a real storm is exactly
-    the evidence this measures.
+  - Hours flagged in feed_quality and not yet resolved are left out. Once the
+    daily audit has resolved an hour it is kept either way: a real storm is
+    exactly the evidence this measures, and after a feed fault the city's
+    final figures (which this reads) are correct.
 """
 
 from __future__ import annotations
@@ -304,13 +305,14 @@ def last_full_day(rows: list[Row], weather: list[dict]) -> date:
 
 
 def flagged_hours(conn) -> set[datetime]:
-    """Hours still flagged in feed_quality: unresolved, or confirmed as a feed fault.
+    """Hours flagged in feed_quality and not yet resolved: the only ones left out.
 
-    An hour confirmed as real (a storm, say) is not in this set. It was unflagged
-    when it was confirmed, and it is exactly the heavy-rain evidence this
-    measurement needs.
+    Once the daily audit has compared an hour with the city's figures it is used,
+    whichever way it went. Confirmed real (a storm, say) is exactly the heavy-rain
+    evidence this measurement needs. Confirmed as a fault means our live table was
+    short, but this script reads the city's final figures, which are correct.
     """
-    return {row[0] for row in conn.execute("select hour from feed_quality where anomaly")}
+    return {row[0] for row in conn.execute("select hour from feed_quality where anomaly and resolution is null")}
 
 
 def without_flagged(rows: list[Row], flagged: set[datetime]) -> list[Row]:
@@ -323,7 +325,7 @@ def load(today: date, flagged: set[datetime] = frozenset()) -> tuple[Table, date
     first = window_for(today)[0] - timedelta(days=10)  # slack for the data lag
     rows = download_counts(first, today)
     kept = without_flagged(rows, flagged)
-    print(f"  {len(rows) - len(kept):,} sensor-hours left out: they fall in hours flagged as a possible feed fault")
+    print(f"  {len(rows) - len(kept):,} sensor-hours left out: they fall in flagged hours not yet resolved")
     rows = kept
     print(f"  observed weather {first} .. {today}")
     weather = openmeteo.observed(first, today)

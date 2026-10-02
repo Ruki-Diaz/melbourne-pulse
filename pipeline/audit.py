@@ -52,6 +52,11 @@ HOURLY_TOLERANCE = 0.05
 PARKING_TOLERANCE_PTS = 5
 HOURLY_DAYS = 4
 RESOLVE_DAYS = 60  # how far back an unresolved flag is still looked up
+# The first hour our table took from the live feed (Wed 30 Sep 2026, 3pm Melbourne).
+# Everything before it was copied in from the city's hourly dataset by
+# seed_history.py, so comparing it with that dataset proves nothing: it would
+# always "agree". Flags on those hours are never resolved automatically.
+LIVE_FEED_SINCE = datetime(2026, 9, 30, 5, tzinfo=UTC)
 
 
 def recompute_counts(hour: datetime) -> dict[int, int]:
@@ -142,9 +147,12 @@ def resolution(row: dict) -> str | None:
                        feed was incomplete. The hour stays flagged.
 
     None for an hour that isn't flagged, or where ours is above the city's
-    (neither explanation fits; it is reported as a mismatch and left as it is).
+    (neither explanation fits; it is reported as a mismatch and left as it is),
+    or that was seeded from the city's dataset rather than taken from the live
+    feed (the comparison would be circular, so the flag stands until someone
+    removes it by hand).
     """
-    if not row["flagged"]:
+    if not row["flagged"] or row["hour"] < LIVE_FEED_SINCE:
         return None
     if abs(row["gap"]) <= HOURLY_TOLERANCE:
         return "confirmed_real"
@@ -174,9 +182,11 @@ def hourly_comparison(conn) -> tuple[list[dict], set[datetime]]:
 def resolve(conn, hours: list[dict]) -> dict[str, int]:
     """Record what the city's figures say about each flagged hour that can now be compared.
 
-    A confirmed_real hour is unflagged (anomaly = false), so the site's typical,
-    the rain effect and the forecast model use it again. A confirmed_fault hour
-    stays flagged. Only unresolved rows are touched, so a resolution is final.
+    A confirmed_real hour is unflagged (anomaly = false), so everything uses it
+    again. A confirmed_fault hour stays flagged for the website, whose live
+    table holds the incomplete counts; the model and the rain effect read the
+    city's final figures, which are right, so they use it (they skip only
+    unresolved hours). Only unresolved rows are touched, so a resolution is final.
     """
     done = {"confirmed_real": 0, "confirmed_fault": 0}
     with conn.transaction():
@@ -205,11 +215,17 @@ def report_hourly(hours: list[dict], flagged: set[datetime]) -> bool:
         )
     for verdict, meaning in (
         ("confirmed_real", "match the city's own figures: really that quiet, to be unflagged"),
-        ("confirmed_fault", "are well below the city's own figures: the live feed was incomplete, to stay flagged"),
+        ("confirmed_fault", "are well below the city's own figures: the live feed was incomplete, to stay flagged on the site"),
     ):
         found = [h for h in hours if resolution(h) == verdict]
         if found:
             print(f"  {len(found)} flagged hours {meaning} ({local(found[0]['hour']):%a %d %b %H:00} to {local(found[-1]['hour']):%a %d %b %H:00})")
+    seeded = sorted(h["hour"] for h in hours if h["flagged"] and h["hour"] < LIVE_FEED_SINCE)
+    if seeded:
+        print(
+            f"  {len(seeded)} flagged hours ({local(seeded[0]):%a %d %b %H:00} to {local(seeded[-1]):%a %d %b %H:00}) were seeded from the "
+            "city's dataset, not taken from the live feed: they are never resolved automatically and stay flagged."
+        )
     waiting = sorted(flagged - {h["hour"] for h in hours})
     if waiting:
         print(

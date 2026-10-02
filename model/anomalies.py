@@ -1,13 +1,15 @@
-"""Hours the pipeline flagged as a fault in the city's sensor feed (pipeline/feed_quality.py).
+"""Hours the pipeline flagged and nobody has settled yet (pipeline/feed_quality.py).
 
-A flagged hour is not evidence of how busy the city was, so it is left out of
-the model twice over: it is never a training example, and it is never used as
-history ("same hour last week") for another hour. features.build falls back to
-the next week that isn't flagged.
+Until a flagged hour is resolved it is not known whether its counts can be
+trusted, so it is left out of the model twice over: it is never a training
+example, and it is never used as history ("same hour last week") for another
+hour. features.build falls back to the next week that isn't flagged.
 
-The flags live in the feed_quality table. An hour the daily audit confirmed as
-real (pipeline/audit.py --resolve) is no longer flagged and counts as normal
-data. predict.py tolerates a missing DATABASE_URL in a dry run (nothing is
+The flags live in the feed_quality table. Once the daily audit has compared an
+hour with the city's published totals (pipeline/audit.py --resolve) it is used
+again, whichever way it went: "confirmed real" is ordinary data, and "confirmed
+fault" means our live table was short, while this model reads the city's final
+figures, which are correct. Only unresolved hours are excluded. predict.py tolerates a missing DATABASE_URL in a dry run (nothing is
 excluded, and the log says so); train.py refuses to run without it unless
 told to with --no-quality-flags.
 """
@@ -37,6 +39,10 @@ def from_utc(hours: list) -> frozenset[int]:
     return frozenset(keys(local.dt.tz_localize(None), local.dt.hour).tolist())
 
 
+# Flagged and not yet compared with the city's figures: the only hours the model skips.
+UNRESOLVED = "select hour from feed_quality where anomaly and resolution is null order by hour"
+
+
 class FlagsUnavailable(RuntimeError):
     """The flags were required but the database isn't configured."""
 
@@ -57,5 +63,5 @@ def flagged(required: bool = False) -> frozenset[int]:
     from pulse import db
 
     with db.connect() as conn:
-        hours = [row[0] for row in conn.execute("select hour from feed_quality where anomaly order by hour")]
+        hours = [row[0] for row in conn.execute(UNRESOLVED)]
     return from_utc(hours)
