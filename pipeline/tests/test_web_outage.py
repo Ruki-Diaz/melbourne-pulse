@@ -3,7 +3,8 @@
 The website's reads (web/lib/db.ts) throw when Neon can't be reached, so Next.js
 keeps serving the last good page with its "Last updated X h ago" badge. Only a
 database that isn't configured at all (local builds, CI) gives empty results.
-Runs the real TypeScript with Node 22.18+; skipped without it.
+Runs the real TypeScript with Node 22.18+ and the installed web packages; skipped
+without them (the hourly job), run by the ci workflow.
 """
 
 import json
@@ -14,7 +15,14 @@ import pytest
 
 from test_plan_recommendations import WEB, node_version
 
-pytestmark = pytest.mark.skipif(node_version() < (22, 18), reason="needs Node 22.18+ to run web/lib/db.ts")
+pytestmark = [
+    pytest.mark.skipif(node_version() < (22, 18), reason="needs Node 22.18+ to run web/lib/db.ts"),
+    # The hourly job doesn't install the website's packages; the ci workflow does (npm ci).
+    pytest.mark.skipif(
+        not (WEB / "node_modules" / "@neondatabase" / "serverless").is_dir(),
+        reason="needs web/node_modules (npm ci in web/)",
+    ),
+]
 
 READS = {
     "getLatest": 'db.getLatest("pedestrian")',
