@@ -104,6 +104,8 @@ GitHub's own schedule (`37 17 * * *` UTC = 03:37 AEST / 04:37 AEDT) is a fallbac
 | `REVALIDATE_SECRET` | GitHub Secrets **and** Vercel env vars (must match) |
 | `SITE_URL` | GitHub → Settings → **Variables** → Actions = `https://melbourne-pulse-au.vercel.app` |
 | `DATABASE_URL_READONLY` | Vercel env vars (Neon web_reader, pooled) |
+| `NEON_API_KEY` | GitHub → Settings → Secrets → Actions. A Neon personal API key, only for the daily usage check |
+| `NEON_PROJECT_ID` | GitHub → Settings → **Variables** → Actions. Neon console → project → Settings → General → Project ID |
 | `NEXT_PUBLIC_SITE_URL` | Vercel env vars = `https://melbourne-pulse-au.vercel.app` (redeploy after changing) |
 
 ## Quick health check
@@ -119,7 +121,27 @@ GitHub's own schedule (`37 17 * * *` UTC = 03:37 AEST / 04:37 AEDT) is a fallbac
      - `rain_effect`: check `max(computed_at)` (should be within the last 35 days).
    - `/api/plan` shows what the site last read: `dataFreshness` has each table's newest write and `snapshotAt`, the time of the read. If the tables are newer than `snapshotAt` by more than an hour, the hourly job's "Revalidate website" step isn't getting through (check `SITE_URL` and `REVALIDATE_SECRET`).
 4. **If a number on the homepage looks wrong:** run `cd pipeline && DATABASE_URL='…' ../.venv/bin/python audit.py`. It recomputes the pedestrian count total, the % against typical, the % of parking bays free and the busiest sensor straight from the City of Melbourne API and prints them beside the database and the live page. All four should say "yes". If they match but the counts still look implausibly low, the city's live feed itself may be short: compare with the city's hourly dataset a day later (it is published about a day behind).
-5. **Neon usage** (free: 100 CU-hours/month, 0.5 GB): https://console.neon.tech → project → Usage.
+5. **Neon usage** (free: 5 GB transfer and 100 CU-hours a month, 0.5 GB storage): the `daily-forecast` run's last step, "Neon usage", prints both and how the month is tracking. Or https://console.neon.tech → project → Overview (the Billing page only shows transfer once you are over).
+
+## Staying inside Neon's free plan
+
+Neon Free allows **5 GB of data transfer** (everything queries send back, to GitHub Actions and to Vercel) and **100 CU-hours of compute** a month. Going over the transfer limit suspends the database until the next billing month; the site then keeps showing its last pages with "Last updated X h ago". In October 2026 the hourly feed-quality check read 8 weeks of counts every hour (~7 MB a run) and used 4 GB in 15 days; it now reads only the hours it compares. Normal use is about 1.5–2 GB a month (README, "Free-tier budget").
+
+**The alarm.** The last step of `daily-forecast`, "Neon usage" (`pipeline/usage.py`), reads this month's transfer and compute from the Neon API and projects them to the month's end at the current pace:
+
+| Result | Meaning | What to do |
+|---|---|---|
+| Green, no annotation | On track for under 50% of both limits | Nothing |
+| Yellow warning "Neon data transfer budget" (or compute) | On track for 50–80% | Look at what changed recently: a new page or query that reads more rows, or the hourly job running more often than once an hour |
+| **Red** "Neon … budget" + email | On track for over 80%, or over 80% already used | Act within days. Find the biggest reader (README table), or pause the cron-job.org hourly job until the month resets |
+| Yellow "Neon usage not checked" | No `NEON_API_KEY`/`NEON_PROJECT_ID`, or the Neon API was down | Set them (below). The forecast itself is never affected |
+
+**Setting it up (5 min, once).** Neon console → your avatar → Account settings → API keys → Create new API key → copy it into GitHub → Settings → Secrets → Actions as `NEON_API_KEY`. Then copy the Project ID (Neon → project → Settings → General) into GitHub → Settings → Variables → Actions as `NEON_PROJECT_ID`. Run `daily-forecast` once from the Actions tab and check the "Neon usage" step prints two lines.
+
+**Rules for new code**, so the budget holds:
+- A query returns only the rows and columns the page or script uses. Count rows in SQL rather than fetching them to count.
+- The website never reads the database per visitor: pages are cached for an hour and refreshed by the hourly job. The Plan page's fallback re-reads at most once per clock hour.
+- A failed website read throws (it must not return empty data), so an outage never replaces the last good page with an empty one.
 
 ## Yellow warning or red failure (the `hourly` job)
 

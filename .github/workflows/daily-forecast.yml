@@ -45,3 +45,14 @@ jobs:
         run: python predict.py
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      # The free-plan alarm: warns at 50% of Neon's monthly transfer or compute on
+      # current pace, goes red (an email) at 80%, days before Neon would suspend the
+      # database. Runs last and whatever happened above.
+      - name: Neon usage
+        if: ${{ !cancelled() }}
+        working-directory: pipeline
+        run: python usage.py
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}

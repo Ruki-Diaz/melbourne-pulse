@@ -174,9 +174,33 @@ the future. [Full report, with chart and method](model/REPORT.md).
 
 ## Free-tier budget
 
-The limits that matter are **Neon Free: 0.5 GB storage and 100 CU-hours a
-month**, with compute scaling to zero after 5 idle minutes. The storage figures
-below were measured on Postgres 16 with real data, not guessed.
+The limits that matter are **Neon Free: 0.5 GB storage, 100 CU-hours and 5 GB
+of data transfer a month**, with compute scaling to zero after 5 idle minutes.
+Going over the transfer limit suspends the database until the next month, so
+it is the one to watch. The figures below were measured with real data, not
+guessed, and a daily check (`pipeline/usage.py`) reads the real usage from
+Neon's API and emails a warning long before any limit.
+
+### Data transfer: about 1.5–2 GB a month (out of 5)
+
+Every byte a query returns counts, whether the reader is the hourly job on
+GitHub or the website on Vercel. So each read fetches only what it uses, and
+the site's database reads depend on how often the hourly job runs (~730 times
+a month), never on how many people visit.
+
+| Hourly read | Size per run |
+|---|---:|
+| Feed-quality check: the same weekday and hour over 8 weeks, 2,673 rows (it once read all 134,000, about 7 MB, and used 8 GB in half of October 2026) | 0.1 MB |
+| Typical counts in `fetch.py` | 0.2 MB |
+| `/map`: all 6,324 parking bays, sensors, 49 h of forecasts and 24 h of counts | ~0.95 MB |
+| Home page, link-preview image, Plan snapshot: no bay list (the % free is counted in SQL) | ~0.45 MB |
+| **Total** | **~1.7 MB/h ≈ 1.3 GB/month**, plus JSON overhead and the daily audit (≤5 MB/day) |
+
+Proved before shipping: on the stored data, the slimmer feed-quality read gave
+identical results for all 336 three-hour windows of the previous 14 days, and
+the SQL-counted parking share matched the page's own count (2,628 of 5,284
+bays). If Neon is unreachable, every website read throws, so Next.js keeps the
+last good page instead of caching an empty one (`pipeline/tests/test_web_outage.py`).
 
 ### Storage: about 40 MB at 90 days (about 8% of 0.5 GB)
 
