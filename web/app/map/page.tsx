@@ -16,7 +16,7 @@ export const metadata = {
 export default async function MapPage() {
   const [latestData, forecasts, history] = await Promise.all([
     getAllLatest(),
-    getForecasts(),
+    getForecasts(25), // the chart starts 24 hours back
     getRecentPedestrianHistory(24),
   ]);
   const { pedestrian, parking, sensors: sensorMetaList, summary } = latestData;

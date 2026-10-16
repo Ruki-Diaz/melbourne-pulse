@@ -1,9 +1,10 @@
 import React from "react";
 import {
-  getAllLatest,
   getFeedAnomaly,
   getForecasts,
+  getLatestSummaryData,
   getRecentPedestrianHistory,
+  pctFree,
   settledSensors,
   type SensorMeta,
 } from "@/lib/db";
@@ -32,8 +33,8 @@ export const revalidate = 3600;
 // missing the components show "Waiting for the next update", never a guess.
 export default async function HomePage() {
   const [latestData, forecasts, history, rain] = await Promise.all([
-    getAllLatest(),
-    getForecasts(),
+    getLatestSummaryData(),
+    getForecasts(9), // sparklines chart the last 8 hours
     getRecentPedestrianHistory(18),
     getRainOutlook(12),
   ]);
@@ -55,13 +56,7 @@ export default async function HomePage() {
   const totalPedestrians = counted.length ? counted.reduce((acc, s) => acc + (s.count || 0), 0) : null;
   const sensorsActive = pedestrian?.payload?.coverage?.active ?? counted.length;
 
-  let pctParkingFree: number | null = null;
-  if (Array.isArray(parking?.payload)) {
-    const reporting = parking.payload.filter((p) => !p.stale);
-    if (reporting.length > 0) {
-      pctParkingFree = Math.round((reporting.filter((p) => p.free).length / reporting.length) * 100);
-    }
-  }
+  const pctParkingFree = pctFree(parking);
 
   let busiestSpot: { name: string; count: number } | null = null;
   if (counted.length > 0) {

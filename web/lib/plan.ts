@@ -136,8 +136,12 @@ const cachedSnapshot = unstable_cache(readSnapshot, ["plan-snapshot-v2"], { reva
 async function getSnapshot(): Promise<Snapshot> {
   const cached = await cachedSnapshot();
   if (Date.now() - Date.parse(cached.readAt) <= MAX_SNAPSHOT_AGE_MS) return cached;
+  // Stale (the hourly refresh hasn't run). Re-read, but at most once per clock hour
+  // across all visitors: a cache entry per hour. Reading on every request would let
+  // traffic, or a bot, spend the free monthly database transfer.
+  const hourKey = String(Math.floor(Date.now() / 3_600_000));
   try {
-    return await readSnapshot();
+    return await unstable_cache(readSnapshot, ["plan-snapshot-fallback", hourKey], { revalidate: 3600 })();
   } catch (error) {
     console.error("plan snapshot is stale and the database could not be read:", error);
     return cached;

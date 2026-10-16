@@ -325,3 +325,27 @@ def test_seeded_hours_are_never_resolved_automatically():
     assert done == {"confirmed_real": 1, "confirmed_fault": 0}
     assert table.rows[grand_final] == {"anomaly": True, "resolution": None}  # left flagged
     assert table.rows[first_live] == {"anomaly": False, "resolution": "confirmed_real"}
+
+
+def test_week_slots_are_local_weekday_hours_across_the_dst_change():
+    # Sun 4 Oct 2026: 01:00 AEST is 15:00Z on the 3rd; the next hour is 03:00 AEDT (02:00 doesn't exist).
+    first = utc(2026, 10, 3, 15)
+    assert feed_quality.week_slots(first, first + timedelta(hours=1)) == {(7, 1), (7, 3)}
+    # A long backfill stops at the 168 slots of a week (then the filter keeps every row).
+    assert len(feed_quality.week_slots(first, first + timedelta(days=30))) == 7 * 24
+
+
+def test_the_hourly_read_asks_only_for_the_slots_being_assessed():
+    seen = []
+
+    class Spy(StoredCounts):
+        def execute(self, sql, params=None):
+            if "from pedestrian_hourly" in sql:
+                seen.append(params)
+            return super().execute(sql, params)
+
+    first = utc(2026, 10, 15, 23)  # Fri 10:00 AEDT
+    feed_quality.assess_range(Spy([], []), first, first + timedelta(hours=2), {})
+    (since, until, days, hours), = seen
+    assert since == first - timedelta(weeks=8, days=1) and until == first + timedelta(hours=2)
+    assert list(zip(days, hours)) == [(5, 10), (5, 11), (5, 12)]
