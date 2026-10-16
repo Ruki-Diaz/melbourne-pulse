@@ -158,3 +158,26 @@ def test_slim_sensors(location_rows):
         "lon": 144.96429485,
         "indoor": False,
     }
+
+
+def test_a_re_read_never_lowers_a_stored_count():
+    """The upsert keeps the larger count: a smaller re-read means the city's feed lost minutes (2-3 Oct 2026)."""
+    from pulse import db
+
+    class Capture:
+        def cursor(self):
+            return self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def executemany(self, sql, rows):
+            self.sql = " ".join(sql.split())
+
+    conn = Capture()
+    db.upsert_pedestrian_hours(conn, [])
+    assert "set count = greatest(pedestrian_hourly.count, excluded.count)" in conn.sql
+    assert "is_partial = pedestrian_hourly.is_partial and excluded.is_partial" in conn.sql

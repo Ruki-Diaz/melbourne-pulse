@@ -31,10 +31,10 @@ jobs:
       - name: Tests
         run: pytest -q
 
-      # Settle yesterday's flagged hours against the city's published hourly totals:
-      # confirmed real (unflagged, usable as history) or confirmed feed fault (stays
-      # excluded). Runs first so the forecast below uses the outcome. It never fails
-      # the job on a city API problem.
+      # Settle yesterday's flagged hours against the city's published hourly totals
+      # (confirmed real or confirmed feed fault), then repair our stored counts to the
+      # city's figures for every hour at least 2 days old. Runs first so the forecast
+      # below uses the outcome. It never fails the job on a city API problem.
       - name: Resolve flagged hours
         working-directory: pipeline
         run: python audit.py --resolve

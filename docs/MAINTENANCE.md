@@ -178,18 +178,20 @@ The notice clears by itself: once fewer than 25% of sensors are low, the next ho
 | Resolution | When | What happens |
 |---|---|---|
 | `confirmed_real` | our total is within 5% of the city's | The hour is unflagged (`anomaly = false`) and is normal data again everywhere. A real storm is exactly the heavy-rain evidence the rain effect needs. |
-| `confirmed_fault` | our total is more than 5% below the city's | The live feed was incomplete. On the **site** the hour stays flagged (`anomaly = true`): our live table holds the short counts, so it is kept out of "typical". The **model and the rain effect** use the hour again, because they read the city's final figures, which are correct. |
+| `confirmed_fault` | our total is more than 5% below the city's | The live feed was incomplete. On the **site** the hour stays flagged (`anomaly = true`) until the repair below replaces our short counts with the city's, usually the next morning; then it is unflagged and used everywhere. The **model and the rain effect** use the hour at once, because they read the city's final figures. |
 | *(empty)* | not published yet, ours is above the city's, or the hour was seeded | Nothing changes: the hour stays flagged and excluded everywhere. Unpublished hours are tried again the next day. |
 
 Who leaves out what:
 
 | | Unresolved flag | `confirmed_fault` | `confirmed_real` |
 |---|---|---|---|
-| Site: notice, "typical", comparisons (our live table) | left out | left out | used |
+| Site: notice, "typical", comparisons (our live table) | left out | left out until repaired, then used | used |
 | Forecast model: training and lag/typical history (city's figures) | left out | used | used |
 | Rain effect (city's figures) | left out | used | used |
 
 A resolution is final: neither the hourly check nor a `--backfill` re-assesses a resolved hour.
+
+**The daily repair: our table always ends up with the city's figures.** After resolving, the same step sets every stored sensor-hour that is at least 2 days old (and within the last 4 days) to the city's published count, whether ours was lower or higher, and completes any old hour still marked partial. It prints `[repair] N sensor-hours in M hours set to the city's published figures`. The live feed is only ever a first draft: on 2–3 Oct 2026 the city's feed lost data and our re-reads overwrote correct counts with 1–5% of them, and from 7 Oct the oldest midnight hour was cut to its last 5 minutes (the feed starts at 13:55 UTC, which is 00:55 under daylight saving). Both are fixed at the source now (`pulse/aggregate.py`, `pulse/db.py`), and the repair catches anything else. On 16 Oct a one-off `audit.py --resolve --days 20` repaired 6,197 sensor-hours in 312 hours; afterwards all 430 compared hours matched the city's and the site's "typical" matched the city's to the person. To repair further back by hand: `cd pipeline && DATABASE_URL='…' ../.venv/bin/python audit.py --resolve --days 30`.
 
 **Seeded hours are never resolved automatically.** Everything in `pedestrian_hourly` before Wed 30 Sep 2026, 3pm (`LIVE_FEED_SINCE` in `pipeline/audit.py`) was copied from the city's hourly dataset by `seed_history.py`, so comparing it with that dataset would always "agree". A flag on such an hour (the two Grand Final Saturday hours, 26 Sep 12pm and 1pm, are the only ones) stays flagged and excluded until you remove it by hand with the SQL in step 3 below. If the database is ever rebuilt and re-seeded, move `LIVE_FEED_SINCE` to the first hour the hourly job wrote.
 

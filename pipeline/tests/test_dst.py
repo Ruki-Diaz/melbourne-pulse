@@ -62,12 +62,23 @@ def test_24_hour_horizon_across_change(start, skipped, doubled):
 
 def test_pedestrian_hourly_across_spring_forward():
     rows = [
+        {"location_id": 8, "sensing_datetime": "2026-10-03T13:00:00+00:00", "total_of_directions": 1},  # the feed starts with the window
         {"location_id": 7, "sensing_datetime": "2026-10-03T15:59:00+00:00", "total_of_directions": 5},  # 01:59 AEST
         {"location_id": 7, "sensing_datetime": "2026-10-03T16:00:00+00:00", "total_of_directions": 3},  # 03:00 AEDT
     ]
-    out = pedestrian_hourly(rows, window_start=utc(2026, 10, 3, 13))
+    out = [h for h in pedestrian_hourly(rows, window_start=utc(2026, 10, 3, 13)) if h.location_id == 7]
     assert [(local(h.hour).strftime("%H:%M %Z"), h.count, h.is_partial) for h in out] == [
         ("00:00 AEST", 0, False),  # sensor is up on 4 Oct, so its silent hour is a real 0
         ("01:00 AEST", 5, False),
         ("03:00 AEDT", 3, True),  # 02:00 doesn't exist
     ]
+
+
+def test_the_hour_the_city_has_started_trimming_is_never_rewritten():
+    """The city trims the feed at 13:55 UTC: 00:55 AEDT. Its oldest midnight hour holds 5 minutes, not 60."""
+    rows = [
+        {"location_id": 7, "sensing_datetime": "2026-10-13T13:55:00+00:00", "total_of_directions": 9},  # 00:55 AEDT, oldest in the feed
+        {"location_id": 7, "sensing_datetime": "2026-10-13T14:10:00+00:00", "total_of_directions": 4},  # 01:10 AEDT
+    ]
+    out = pedestrian_hourly(rows, window_start=utc(2026, 10, 13, 13))  # the window asks for midnight onwards
+    assert [(local(h.hour).strftime("%H:%M"), h.count) for h in out] == [("01:00", 4)]  # midnight left as stored

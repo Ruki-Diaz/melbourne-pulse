@@ -62,6 +62,10 @@ sensors. It lags real time by about 25 minutes.
 | `total_of_directions` | int | `3` | `direction_1 + direction_2` |
 
 Quirks:
+- **The window starts at 13:55 UTC.** Seen as 23:55 AEST before daylight saving
+  and 00:55 AEDT after it (from 4 Oct 2026), so under daylight saving the oldest
+  midnight hour holds only its last 5 minutes. `pedestrian_hourly()` never rewrites
+  an hour that starts before the oldest minute in the feed.
 - **Zero minutes are omitted.** Only one row in the whole window has
   `total_of_directions = 0`, so a missing minute means a count of 0.
 - **Granularity varies by sensor.** Location 3 reports 60 rows an hour.
