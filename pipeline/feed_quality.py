@@ -57,15 +57,35 @@ def typicals(history: dict, flagged: set[datetime], hour: datetime) -> dict[int,
     return out
 
 
+def week_slots(first: datetime, last: datetime) -> set[tuple[int, int]]:
+    """The (ISO weekday, local hour) of every hour in [first, last], in Melbourne time."""
+    slots = set()
+    hour = first
+    while hour <= last and len(slots) < 7 * 24:
+        at = local(hour)
+        slots.add((at.isoweekday(), at.hour))
+        hour += HOUR
+    return slots
+
+
 def assess_range(conn, first: datetime, last: datetime, rain_by_hour: dict[datetime, float], settled=None) -> list[Quality]:
     """Assess every hour in [first, last] in order, from the counts stored in pedestrian_hourly.
 
     `settled(lid, hour)` says whether a sensor has finished reporting an hour; by
     default every stored, non-partial row counts.
     """
+    # Only the local weekday-and-hour slots being assessed: an hour's typical uses nothing
+    # else, and reading the other 165 slots of the week cost ~7 MB of Neon transfer an hour.
+    slots = sorted(week_slots(first, last))
     rows = conn.execute(
-        "select location_id, hour, count from pedestrian_hourly where not is_partial and hour >= %s and hour <= %s",
-        (first - timedelta(weeks=WEEKS, days=1), last),
+        """
+        select location_id, hour, count from pedestrian_hourly
+        where not is_partial and hour >= %s and hour <= %s
+          and (extract(isodow from hour at time zone 'Australia/Melbourne')::int,
+               extract(hour from hour at time zone 'Australia/Melbourne')::int)
+              in (select d, h from unnest(%s::int[], %s::int[]) as slot(d, h))
+        """,
+        (first - timedelta(weeks=WEEKS, days=1), last, [d for d, _ in slots], [h for _, h in slots]),
     ).fetchall()
     history: dict = defaultdict(lambda: defaultdict(dict))
     by_hour: dict[datetime, dict[int, int]] = defaultdict(dict)
@@ -75,12 +95,13 @@ def assess_range(conn, first: datetime, last: datetime, rain_by_hour: dict[datet
         by_hour[hour][lid] = count
     # Everything already decided: hours before this range, and any hour audit.py has
     # resolved against the city's figures. A resolution is final and is never re-assessed.
+    # Only as far back as the counts above: an older flag can't affect any typical here.
     known = {
         hour: Quality(hour, judged, low, anomaly, reason, heavy)
         for hour, judged, low, anomaly, reason, heavy in conn.execute(
             "select hour, sensors_judged, sensors_low, anomaly, reason, heavy_rain from feed_quality "
-            "where hour < %s or resolution is not null",
-            (first,),
+            "where hour >= %s and (hour < %s or resolution is not null)",
+            (first - timedelta(weeks=WEEKS, days=1), first),
         )
     }
     flagged = {hour for hour, q in known.items() if q.anomaly}

@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { getAllLatest, getFeedAnomaly, settledSensors } from "@/lib/db";
+import { getFeedAnomaly, getLatestSummaryData, pctFree, settledSensors } from "@/lib/db";
 import { headline } from "@/lib/feed-anomaly";
 import { getFreshness } from "@/lib/freshness";
 import metrics from "@/lib/model-metrics.json";
@@ -28,31 +28,22 @@ export default async function Image() {
   let updatedAt: Date | null = null;
   let summaryText = "Live pedestrian counts and free parking bays across Melbourne CBD.";
 
-  try {
-    const data = await getAllLatest();
-    updatedAt = data.pedestrian?.updatedAt ?? null;
-    const counted = settledSensors(data.pedestrian?.payload);
-    if (counted.length) {
-      totalPedestrians = counted.reduce(
-        (acc, s) => acc + (s.count || 0),
-        0
-      );
-    }
-    // A flagged hour gets the warning, never a comparison.
-    const text = headline(data.summary?.payload?.text, await getFeedAnomaly(data.pedestrian?.payload?.hour));
-    if (text) {
-      summaryText = text;
-    }
-    if (data.parking?.payload) {
-      const nonStale = data.parking.payload.filter((p) => !p.stale);
-      if (nonStale.length > 0) {
-        const free = nonStale.filter((p) => p.free).length;
-        pctParking = Math.round((free / nonStale.length) * 100);
-      }
-    }
-  } catch (e) {
-    console.error("OpenGraph image query fallback:", e);
+  // A database error throws, so the last good image is kept rather than replaced by an empty one.
+  const data = await getLatestSummaryData();
+  updatedAt = data.pedestrian?.updatedAt ?? null;
+  const counted = settledSensors(data.pedestrian?.payload);
+  if (counted.length) {
+    totalPedestrians = counted.reduce(
+      (acc, s) => acc + (s.count || 0),
+      0
+    );
   }
+  // A flagged hour gets the warning, never a comparison.
+  const text = headline(data.summary?.payload?.text, await getFeedAnomaly(data.pedestrian?.payload?.hour));
+  if (text) {
+    summaryText = text;
+  }
+  pctParking = pctFree(data.parking);
   const freshness = getFreshness(updatedAt);
   const badge = BADGE[freshness.state];
   const badgeText =
