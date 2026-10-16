@@ -25,6 +25,9 @@ jobs:
         with:
           node-version: 22
       - run: pip install -r requirements-dev.txt
+      # The website-outage tests run web/lib/db.ts, which needs the web packages.
+      - run: npm ci
+        working-directory: web
       - run: pytest -q
       - name: Dry run against live feeds
         run: python fetch.py --dry-run
