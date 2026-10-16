@@ -349,3 +349,71 @@ def test_the_hourly_read_asks_only_for_the_slots_being_assessed():
     (since, until, days, hours), = seen
     assert since == first - timedelta(weeks=8, days=1) and until == first + timedelta(hours=2)
     assert list(zip(days, hours)) == [(5, 10), (5, 11), (5, 12)]
+
+
+# --- Repairing our counts from the city's published figures (audit.py --resolve) ---
+
+NOW = utc(2026, 10, 16, 5)
+OLD = utc(2026, 10, 2, 3)  # Fri 2 Oct 13:00 AEST: live-feed era, two weeks old
+
+
+def test_every_disagreeing_sensor_hour_is_set_to_the_city_figure():
+    ours = {OLD: {1: 3_723, 2: 40, 3: 500}}
+    city = {OLD: {1: 69_998, 2: 40, 3: 480, 4: 9_999}}
+    # Sensor 1 too low (feed lost data), sensor 3 too high, sensor 2 right, sensor 4 not in our table.
+    assert audit.repairs(ours, city, NOW) == [(69_998, 1, OLD), (480, 3, OLD)]
+
+
+def test_recent_hours_seeded_hours_and_unpublished_hours_are_left_alone():
+    recent = NOW - timedelta(hours=40)  # the city may still revise it upwards
+    seeded = audit.LIVE_FEED_SINCE - timedelta(hours=1)  # copied from the city's dataset already
+    unpublished = OLD + timedelta(hours=1)
+    ours = {recent: {1: 10}, seeded: {1: 10}, unpublished: {1: 10}}
+    city = {recent: {1: 20}, seeded: {1: 20}}
+    assert audit.repairs(ours, city, NOW) == []
+
+
+class RepairTable:
+    """pedestrian_hourly and feed_quality as dicts, answering the two updates repair() makes."""
+
+    def __init__(self, counts, flags):
+        self.counts, self.flags = counts, flags  # (lid, hour) -> count; hour -> (anomaly, resolution)
+
+    def transaction(self):
+        return self
+
+    def cursor(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def executemany(self, sql, rows):
+        assert sql.startswith("update pedestrian_hourly set count = %s, is_partial = false")
+        for count, lid, hour in rows:
+            self.counts[(lid, hour)] = count
+
+    def execute(self, sql, params):
+        assert "resolution = 'confirmed_fault'" in sql
+        (hours,) = params
+        changed = [h for h in hours if self.flags.get(h) == (True, "confirmed_fault")]
+        for h in changed:
+            self.flags[h] = (False, "confirmed_fault")
+        return type("Result", (), {"rowcount": len(changed)})()
+
+
+def test_a_repaired_feed_fault_hour_is_unflagged_and_keeps_its_resolution():
+    midnight, other = utc(2026, 10, 6, 13), utc(2026, 10, 6, 14)
+    table = RepairTable({(1, midnight): 204, (1, other): 50}, {midnight: (True, "confirmed_fault"), other: (True, None)})
+    assert audit.repair(table, [(4_046, 1, midnight)]) == 1
+    assert table.counts[(1, midnight)] == 4_046
+    assert table.flags[midnight] == (False, "confirmed_fault")  # right counts now; the record of the fault stays
+    assert table.flags[other] == (True, None)  # not repaired, so untouched
+
+
+def test_an_old_row_left_partial_is_repaired_and_completed():
+    ours = {OLD: {1: None}}  # stale_partials() marks it None: always differs from the published figure
+    assert audit.repairs(ours, {OLD: {1: 212}}, NOW) == [(212, 1, OLD)]

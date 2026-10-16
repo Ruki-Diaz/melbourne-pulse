@@ -43,13 +43,22 @@ def get_latest(conn: psycopg.Connection, source: str) -> tuple[datetime, object]
 
 
 def upsert_pedestrian_hours(conn: psycopg.Connection, hours: list[HourCount]) -> None:
+    """Write the hours from the live feed. A stored count is never lowered.
+
+    Late minutes only ever add to an hour, so a smaller number on a re-read
+    means the city's feed has lost data, not that fewer people walked past. On
+    2-3 Oct 2026 overwriting caused stored hours to fall to 1-5% of the city's
+    figures after they had been read correctly. The daily repair
+    (audit.py --resolve) sets every hour to the city's final figure, up or down.
+    """
     with conn.cursor() as cur:
         cur.executemany(
             """
             insert into pedestrian_hourly (location_id, hour, count, is_partial)
             values (%s, %s, %s, %s)
             on conflict (location_id, hour) do update
-              set count = excluded.count, is_partial = excluded.is_partial
+              set count = greatest(pedestrian_hourly.count, excluded.count),
+                  is_partial = pedestrian_hourly.is_partial and excluded.is_partial
             """,
             [(h.location_id, h.hour, h.count, h.is_partial) for h in hours],
         )

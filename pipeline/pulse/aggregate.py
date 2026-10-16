@@ -70,14 +70,21 @@ def pedestrian_hourly(rows: list[dict], window_start: datetime) -> list[HourCoun
       is treated as down and gets no rows (not zeros).
     - Hours that start before `window_start` were only partly downloaded, so
       they are dropped rather than overwriting a good value with a short one.
+      So is the hour the feed itself has started dropping: the city trims the
+      feed at 13:55 UTC, which since daylight saving is 00:55 Melbourne time, so
+      the oldest midnight hour holds only its last 5 minutes. Rewriting it cut
+      stored midnight counts to about 5% of the city's (Oct 2026).
     """
     if not rows:
         return []
 
-    watermark = max(parse_ts(r["sensing_datetime"]) for r in rows)
+    times = [parse_ts(r["sensing_datetime"]) for r in rows]
+    watermark, oldest = max(times), min(times)
     current = floor_hour(watermark)
-    first = floor_hour(window_start)
-    if first < window_start:
+    # The first hour that starts at or after both the download window and the feed's oldest minute.
+    start = max(window_start, oldest)
+    first = floor_hour(start)
+    if first < start:
         first += HOUR
     hours = []
     h = first

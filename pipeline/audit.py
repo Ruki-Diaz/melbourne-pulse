@@ -16,13 +16,18 @@ the city's hourly figures are higher than what the live feed gave us, the live
 feed was incomplete.
 
 Without --resolve it is read-only. With --resolve (run daily before the
-forecast) it does only that last comparison and records the outcome for each
-flagged hour: confirmed_real (unflagged) or confirmed_fault (stays flagged). Parking is a live reading, so the recomputed
-figure is as of now while the database's is from the last hourly run.
+forecast) it does only that last comparison, records the outcome for each
+flagged hour (confirmed_real: unflagged; confirmed_fault: the live feed was
+incomplete), and then repairs our table: every stored sensor-hour at least 2
+days old that differs from the city's published figure is set to it. A
+confirmed_fault hour holds the right counts after that, so it is unflagged.
+Parking is a live reading, so the recomputed figure is as of now while the
+database's is from the last hourly run.
 
     python audit.py                      # needs DATABASE_URL
     python audit.py --site https://melbourne-pulse-au.vercel.app
-    python audit.py --resolve            # writes resolutions to feed_quality
+    python audit.py --resolve            # resolves flags and repairs the last 4 days
+    python audit.py --resolve --days 20  # once, to repair further back
 """
 
 from __future__ import annotations
@@ -51,6 +56,10 @@ HOURLY_TOLERANCE = 0.05
 # Parking is a live reading: "now" may differ from the last hourly run by a few points.
 PARKING_TOLERANCE_PTS = 5
 HOURLY_DAYS = 4
+# The city first publishes a day and then revises it upwards by 2-3% (see above),
+# so an hour is only repaired from its figures once it is this old; a 4-day window
+# repairs each hour on 2-3 consecutive days and follows the revisions.
+REPAIR_AFTER = timedelta(days=2)
 RESOLVE_DAYS = 60  # how far back an unresolved flag is still looked up
 # The first hour our table took from the live feed (Wed 30 Sep 2026, 3pm Melbourne).
 # Everything before it was copied in from the city's hourly dataset by
@@ -159,8 +168,8 @@ def resolution(row: dict) -> str | None:
     return "confirmed_fault" if row["gap"] < 0 else None
 
 
-def hourly_comparison(conn) -> tuple[list[dict], set[datetime]]:
-    """Our stored hourly totals beside the city's hourly dataset, and the hours still flagged and unresolved."""
+def stored_and_published(conn, days: int = HOURLY_DAYS):
+    """Our stored hourly counts and the city's, from `days` ago (or the oldest unresolved flag), and the flagged hours."""
     today = local(datetime.now(UTC)).date()
     # Unresolved flags are compared however old they are (within what the tables keep).
     flagged = {
@@ -170,13 +179,34 @@ def hourly_comparison(conn) -> tuple[list[dict], set[datetime]]:
             (today - timedelta(days=RESOLVE_DAYS),),
         )
     }
-    first = min([today - timedelta(days=HOURLY_DAYS)] + [local(h).date() for h in flagged])
+    first = min([today - timedelta(days=days)] + [local(h).date() for h in flagged])
     ours: dict[datetime, dict[int, int]] = defaultdict(dict)
     for lid, hour, count in conn.execute(
         "select location_id, hour, count from pedestrian_hourly where not is_partial and hour >= %s", (first,)
     ):
         ours[hour][lid] = count
-    return compare_hours(ours, city_hourly(first), flagged), flagged
+    return ours, city_hourly(first), flagged
+
+
+def stale_partials(conn, days: int, now: datetime) -> dict[datetime, dict[int, None]]:
+    """Rows still marked partial although their hour is long finished (left by a feed outage).
+
+    Every finished hour is ignored while it is marked partial, so these are
+    repaired too: as None, which never equals a published figure.
+    """
+    out: dict[datetime, dict[int, None]] = defaultdict(dict)
+    for lid, hour in conn.execute(
+        "select location_id, hour from pedestrian_hourly where is_partial and hour >= %s and hour < %s",
+        (local(now).date() - timedelta(days=days), now - REPAIR_AFTER),
+    ):
+        out[hour][lid] = None
+    return out
+
+
+def hourly_comparison(conn, days: int = HOURLY_DAYS) -> tuple[list[dict], set[datetime]]:
+    """Our stored hourly totals beside the city's hourly dataset, and the hours still flagged and unresolved."""
+    ours, city, flagged = stored_and_published(conn, days)
+    return compare_hours(ours, city, flagged), flagged
 
 
 def resolve(conn, hours: list[dict]) -> dict[str, int]:
@@ -200,6 +230,46 @@ def resolve(conn, hours: list[dict]) -> dict[str, int]:
             ).rowcount
             done[verdict] += changed
     return done
+
+
+def repairs(
+    ours: dict[datetime, dict[int, int | None]], city: dict[datetime, dict[int, int]], now: datetime
+) -> list[tuple[int, int, datetime]]:
+    """(city count, location_id, hour) for every stored sensor-hour the city's published figure disagrees with.
+
+    Only hours taken from the live feed (seeded ones are the city's figures already),
+    at least REPAIR_AFTER old, and only sensor-hours we store: sensors the live feed
+    doesn't carry are not added, so totals keep the same sensors as the live site.
+    """
+    out = []
+    for hour in sorted(set(ours) & set(city)):
+        if hour < LIVE_FEED_SINCE or hour > now - REPAIR_AFTER:
+            continue
+        for lid, mine in sorted(ours[hour].items()):
+            theirs = city[hour].get(lid)
+            if theirs is not None and theirs != mine:
+                out.append((theirs, lid, hour))
+    return out
+
+
+def repair(conn, fixes: list[tuple[int, int, datetime]]) -> int:
+    """Write the city's figures over ours, then unflag confirmed_fault hours: their counts are right now.
+
+    Returns how many hours were unflagged. Resolutions are kept: confirmed_fault
+    still records that the live feed was incomplete that hour.
+    """
+    hours = sorted({hour for _, _, hour in fixes})
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.executemany(
+                "update pedestrian_hourly set count = %s, is_partial = false where location_id = %s and hour = %s",
+                fixes,
+            )
+        return conn.execute(
+            "update feed_quality set anomaly = false, checked_at = now() "
+            "where hour = any(%s) and anomaly and resolution = 'confirmed_fault'",
+            (hours,),
+        ).rowcount
 
 
 def report_hourly(hours: list[dict], flagged: set[datetime]) -> bool:
@@ -235,21 +305,32 @@ def report_hourly(hours: list[dict], flagged: set[datetime]) -> bool:
     return not bad
 
 
-def resolve_flagged() -> int:
-    """`--resolve`: compare flagged hours with the city's figures and record the outcome.
+def resolve_flagged(days: int = HOURLY_DAYS) -> int:
+    """`--resolve`: record what the city's figures say about flagged hours, then repair our counts to match them.
 
     Runs before the daily forecast. A problem reaching the city's API is logged
-    and the run still exits 0: an unresolved hour simply stays flagged for another day.
+    and the run still exits 0: an unresolved hour simply stays flagged, and an
+    unrepaired one is repaired, another day.
     """
     with db.connect() as conn:
         try:
-            hours, flagged = hourly_comparison(conn)
+            ours, city, flagged = stored_and_published(conn, days)
         except Exception as exc:  # noqa: BLE001 - never block the forecast on this
             print(f"[resolve] could not compare with the city's hourly dataset ({exc}); nothing resolved", file=sys.stderr)
             return 0
+        hours = compare_hours(ours, city, flagged)
         report_hourly(hours, flagged)
-        done = resolve(conn, hours)
+        done = resolve(conn, hours)  # first, so the record says what the live feed gave us
+        now = datetime.now(UTC)
+        for hour, sensors in stale_partials(conn, days, now).items():
+            ours.setdefault(hour, {}).update(sensors)
+        fixes = repairs(ours, city, now)
+        unflagged = repair(conn, fixes) if fixes else 0
     print(f"[resolve] {done['confirmed_real']} hours confirmed real and unflagged; {done['confirmed_fault']} confirmed as a feed fault")
+    print(
+        f"[repair] {len(fixes)} sensor-hours in {len({h for _, _, h in fixes})} hours set to the city's published figures; "
+        f"{unflagged} feed-fault hours unflagged now their counts are right"
+    )
     return 0
 
 
@@ -278,9 +359,13 @@ def main() -> int:
         "--resolve", action="store_true",
         help="only compare flagged hours with the city's hourly dataset and record the outcome in feed_quality",
     )
+    parser.add_argument(
+        "--days", type=int, default=HOURLY_DAYS,
+        help="with --resolve: how many days back to compare and repair (default: %(default)s)",
+    )
     args = parser.parse_args()
     if args.resolve:
-        return resolve_flagged()
+        return resolve_flagged(args.days)
 
     with db.connect() as conn:
         updated, payload = db.get_latest(conn, "pedestrian")
