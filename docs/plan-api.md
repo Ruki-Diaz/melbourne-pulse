@@ -623,12 +623,10 @@ Errors are JSON with one field and are never cached:
 
 ## Caching and freshness
 
-- The database is read once into a snapshot that is cached for an hour (tag
-  `plan`). The hourly job calls `/api/revalidate`, which drops the snapshot,
-  and then requests `/api/plan` so the new one is built while the database is
-  still awake. Changing the sensor or window never queries the database.
-- If a snapshot is somehow more than 90 minutes old when a request arrives,
-  the database is read directly for that request.
-- Responses carry `Cache-Control: public, s-maxage=300, stale-while-revalidate=3600`.
+- The database is read once into a snapshot that each server instance keeps
+  in memory for 5 minutes, so changing the sensor or window doesn't query the
+  database again. If a read fails, the instance's previous snapshot is used.
+- Responses carry `Cache-Control: public, s-maxage=3600, stale-while-revalidate=600`,
+  so Vercel's CDN answers repeat requests for an hour (no ISR involved).
 - The logic is tested in `pipeline/tests/test_plan_recommendations.py`, which
   runs the real TypeScript with Node 22.18 or newer.

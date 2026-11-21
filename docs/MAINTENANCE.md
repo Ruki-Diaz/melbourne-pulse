@@ -101,8 +101,6 @@ GitHub's own schedule (`37 17 * * *` UTC = 03:37 AEST / 04:37 AEDT) is a fallbac
 |---|---|
 | `DATABASE_URL` | GitHub → Settings → Secrets → Actions (Neon owner, pooled) |
 | `GEMINI_API_KEY` | GitHub → Settings → Secrets → Actions |
-| `REVALIDATE_SECRET` | GitHub Secrets **and** Vercel env vars (must match) |
-| `SITE_URL` | GitHub → Settings → **Variables** → Actions = `https://melbourne-pulse-au.vercel.app` |
 | `DATABASE_URL_READONLY` | Vercel env vars (Neon web_reader, pooled) |
 | `NEON_API_KEY` | GitHub → Settings → Secrets → Actions. A Neon personal API key, only for the daily usage check |
 | `NEON_PROJECT_ID` | GitHub → Settings → **Variables** → Actions. Neon console → project → Settings → General → Project ID |
@@ -114,12 +112,12 @@ GitHub's own schedule (`37 17 * * *` UTC = 03:37 AEST / 04:37 AEDT) is a fallbac
 2. **Amber "Last updated X h ago"** → check https://github.com/Ruki-Diaz/melbourne-pulse/actions. Red run → copy the error (see "Yellow warning or red failure" below). A green run with a yellow warning is one feed missing one run and needs nothing. No recent runs → check cron-job.org (token expired? job disabled?).
 3. **If `/plan` looks stale:**
    - Check `daily-forecast.yml` runs in GitHub Actions (should have run today at 04:37 Melbourne time).
-   - Check `hourly.yml` runs in GitHub Actions (should run hourly to pull Open-Meteo weather into `weather_forecast` and revalidate Vercel cache).
+   - Check `hourly.yml` runs in GitHub Actions (should run hourly to pull Open-Meteo weather into `weather_forecast`).
    - Check Neon tables directly:
      - `forecasts`: check `max(generated_at)` (should be within the last 24h).
      - `weather_forecast`: check `max(fetched_at)` (should be within the last 1-2h).
      - `rain_effect`: check `max(computed_at)` (should be within the last 35 days).
-   - `/api/plan` shows what the site last read: `dataFreshness` has each table's newest write and `snapshotAt`, the time of the read. If the tables are newer than `snapshotAt` by more than an hour, the hourly job's "Revalidate website" step isn't getting through (check `SITE_URL` and `REVALIDATE_SECRET`).
+   - `/api/plan` shows what the site last read: `dataFreshness` has each table's newest write and `snapshotAt`, the time of the read. `snapshotAt` can trail the tables by up to about 70 minutes, because Vercel's CDN keeps each page and API response for an hour (plus 10 minutes stale while it re-renders). Much older than that means the CDN rule is wrong: check the `Vercel-CDN-Cache-Control` / `Cache-Control` response headers (see "How the website is cached" below).
 4. **If a number on the homepage looks wrong:** run `cd pipeline && DATABASE_URL='…' ../.venv/bin/python audit.py`. It recomputes the pedestrian count total, the % against typical, the % of parking bays free and the busiest sensor straight from the City of Melbourne API and prints them beside the database and the live page. All four should say "yes". If they match but the counts still look implausibly low, the city's live feed itself may be short: compare with the city's hourly dataset a day later (it is published about a day behind).
 5. **Neon usage** (free: 5 GB transfer and 100 CU-hours a month, 0.5 GB storage): the `daily-forecast` run's last step, "Neon usage", prints both and how the month is tracking. Or https://console.neon.tech → project → Overview (the Billing page only shows transfer once you are over).
 
@@ -140,8 +138,19 @@ Neon Free allows **5 GB of data transfer** (everything queries send back, to Git
 
 **Rules for new code**, so the budget holds:
 - A query returns only the rows and columns the page or script uses. Count rows in SQL rather than fetching them to count.
-- The website never reads the database per visitor: pages are cached for an hour and refreshed by the hourly job. The Plan page's fallback re-reads at most once per clock hour.
+- The website never reads the database per visitor: Vercel's CDN keeps each page for an hour, so it renders (and reads Neon) about once an hour per page per CDN region. The Plan data is also kept in memory for 5 minutes per server instance.
 - A failed website read throws (it must not return empty data), so an outage never replaces the last good page with an empty one.
+
+## How the website is cached
+
+Pages are **not** ISR (Vercel bills each ISR regeneration as "ISR writes"; the free plan allows 200,000 a month, and the old hourly revalidation used ~4.5k a day). Instead every page and API route renders on request (`dynamic = "force-dynamic"`), and Vercel's CDN caches the result:
+
+- Pages (`/`, `/map`, `/plan`, `/about`, both OG images): `Vercel-CDN-Cache-Control: public, s-maxage=3600, stale-while-revalidate=600`, set in `web/next.config.ts`. (Next.js forces `Cache-Control: no-store` on dynamic pages, so the rule uses Vercel's own header, which its CDN reads first.)
+- `/api/plan*`: `Cache-Control` with the same value, set in `web/app/api/plan/respond.ts`.
+- After the hour, the next visitor still gets the cached copy instantly while a fresh one renders in the background, so nobody waits for Neon to wake.
+- New data therefore shows up within about 70 minutes of landing, not right after the hourly job. Nothing calls the site after ingest any more.
+- The "Live · updated X min ago" badge and the amber "Last updated X h ago" use the database's own write time and are aged in the browser every minute (`web/lib/useFreshness.ts`), so a cached page never overstates how fresh it is. The OG share images print their label at render time, so it can be up to ~70 minutes behind.
+- Vercel → Usage → **ISR Writes** should stay near zero. If it climbs, something has added `revalidate`, `revalidatePath`/`revalidateTag` or `unstable_cache` back: `grep -rnE "revalidate|unstable_cache" web/app web/lib`.
 
 ## Yellow warning or red failure (the `hourly` job)
 
@@ -160,7 +169,7 @@ Things worth knowing:
 - The count lives in the `feed_status` table. To see it: `select * from feed_status;` in the Neon SQL Editor. `last_success_at` is the last time each feed was fetched and saved.
 - To silence a known long outage, there is no switch: the red runs are the alarm. They stop on the first good fetch.
 - A green run with a warning counts as a success for the :17 backup, so the backup does not retry the failed feed that hour.
-- The later steps (weather, feed quality, summary, revalidate) run whether the fetch step is green or red.
+- The later steps (weather, feed quality, summary) run whether the fetch step is green or red.
 
 ## The "far below normal" notice
 

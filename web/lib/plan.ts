@@ -1,7 +1,5 @@
 import "server-only";
 
-import { unstable_cache } from "next/cache";
-
 import { sql } from "./db";
 import {
   assembleEvidence,
@@ -30,20 +28,19 @@ export type {
 /**
  * Data for the Plan page, read from Neon as the read-only role.
  *
- * Everything comes from one cached snapshot (1 hour, tag "plan"), so a visitor
- * changing the sensor or the window never wakes the database: each response is
- * computed in memory from the snapshot (lib/plan-core.ts). /api/revalidate
- * drops the snapshot after every hourly ingest. Shapes: docs/plan-api.md.
+ * Everything comes from one snapshot of the tables, kept in memory for a few
+ * minutes, so a visitor changing the sensor or the window doesn't wake the
+ * database: each response is computed from the snapshot (lib/plan-core.ts).
+ * Pages and API responses are then cached by Vercel's CDN for an hour
+ * (next.config.ts, app/api/plan/respond.ts). Shapes: docs/plan-api.md.
  */
-
-export const PLAN_CACHE_TAG = "plan";
 
 /**
- * Next serves an expired cache entry once more while it refreshes it, however
- * old the entry is. Past this age the database is read directly instead, so a
- * first visitor after a quiet spell never gets yesterday's snapshot.
+ * How long a warm server instance reuses its snapshot. Short, because the CDN
+ * already limits renders to about one per URL per hour; this only stops a burst
+ * of different /api/plan queries each reading the database.
  */
-const MAX_SNAPSHOT_AGE_MS = 90 * 60_000;
+const SNAPSHOT_TTL_MS = 5 * 60_000;
 
 const num = (value: unknown) => (value === null || value === undefined ? null : Number(value));
 const iso = (value: unknown) => (value ? new Date(value as string).toISOString() : null);
@@ -131,20 +128,21 @@ async function readSnapshot(): Promise<Snapshot> {
   };
 }
 
-const cachedSnapshot = unstable_cache(readSnapshot, ["plan-snapshot-v2"], { revalidate: 3600, tags: [PLAN_CACHE_TAG] });
+let memo: { at: number; snapshot: Promise<Snapshot> } | null = null;
+let lastGood: Snapshot | null = null;
 
 async function getSnapshot(): Promise<Snapshot> {
-  const cached = await cachedSnapshot();
-  if (Date.now() - Date.parse(cached.readAt) <= MAX_SNAPSHOT_AGE_MS) return cached;
-  // Stale (the hourly refresh hasn't run). Re-read, but at most once per clock hour
-  // across all visitors: a cache entry per hour. Reading on every request would let
-  // traffic, or a bot, spend the free monthly database transfer.
-  const hourKey = String(Math.floor(Date.now() / 3_600_000));
+  const now = Date.now();
+  if (!memo || now - memo.at >= SNAPSHOT_TTL_MS) memo = { at: now, snapshot: readSnapshot() };
+  const pending = memo.snapshot;
   try {
-    return await unstable_cache(readSnapshot, ["plan-snapshot-fallback", hourKey], { revalidate: 3600 })();
+    lastGood = await pending;
+    return lastGood;
   } catch (error) {
-    console.error("plan snapshot is stale and the database could not be read:", error);
-    return cached;
+    if (memo?.snapshot === pending) memo = null; // never keep a failure
+    if (!lastGood) throw error;
+    console.error("database could not be read; using this instance's previous snapshot:", error);
+    return lastGood;
   }
 }
 

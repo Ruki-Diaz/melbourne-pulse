@@ -4,7 +4,8 @@ import { PlanClient, PlanFirstPaint } from "@/components/plan/PlanClient";
 import { getPlan } from "@/lib/plan";
 
 // Rebuilt hourly and after each ingest, like the other pages.
-export const revalidate = 3600;
+// Rendered on request and cached by Vercel's CDN for an hour (next.config.ts), not ISR.
+export const dynamic = "force-dynamic";
 
 /**
  * /plan: pick a time to be in the CBD from forecast foot traffic and rain.

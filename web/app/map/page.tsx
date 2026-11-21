@@ -6,7 +6,8 @@ import { buildSeriesBySensor, floorHour, HOUR_MS } from "@/lib/series";
 import { MapWrapper } from "@/components/map/MapWrapper";
 import type { MapSensorItem, MapParkingItem } from "@/components/map/LiveLeafletMap";
 
-export const revalidate = 3600;
+// Rendered on request and cached by Vercel's CDN for an hour (next.config.ts), not ISR.
+export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Live Map · Melbourne Pulse",

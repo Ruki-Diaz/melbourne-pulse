@@ -1,9 +1,9 @@
 /**
- * Shared by the /api/plan routes. Responses may be reused by the CDN for 5
- * minutes and served stale for an hour while a fresh one is fetched; the data
- * behind them is cached for an hour in lib/plan.ts either way.
+ * Shared by the /api/plan routes. Vercel's CDN reuses a response for an hour
+ * and serves it stale for 10 more minutes while a fresh one renders, the same
+ * rule as the pages (next.config.ts). This is CDN caching, not ISR.
  */
-const CACHE = "public, s-maxage=300, stale-while-revalidate=3600";
+const CACHE = "public, s-maxage=3600, stale-while-revalidate=600";
 
 export function ok(body: unknown): Response {
   return Response.json(body, { headers: { "Cache-Control": CACHE } });

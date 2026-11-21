@@ -5,7 +5,8 @@ import { PLAN_WINDOWS, type PlanWindow } from "@/lib/plan-core";
 
 import { fail, guarded, ok } from "./respond";
 
-export const revalidate = 3600;
+// Rendered on request and cached by Vercel's CDN for an hour (next.config.ts), not ISR.
+export const dynamic = "force-dynamic";
 
 /**
  * GET /api/plan?sensor=<id|cbd>&window=<12h|today|tomorrow|36h>

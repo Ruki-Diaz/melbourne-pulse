@@ -26,8 +26,8 @@ import {
 import { HowItWorksSection } from "@/components/landing/HowItWorksSection";
 import { BuiltBySection } from "@/components/landing/BuiltBySection";
 
-// Cached for 1 hour; revalidated on-demand by /api/revalidate after hourly ingest.
-export const revalidate = 3600;
+// Rendered on request and cached by Vercel's CDN for an hour (next.config.ts), not ISR.
+export const dynamic = "force-dynamic";
 
 // Every number on this page comes from the database. When something is
 // missing the components show "Waiting for the next update", never a guess.

@@ -5,7 +5,8 @@ import { getFreshness } from "@/lib/freshness";
 import metrics from "@/lib/model-metrics.json";
 
 export const runtime = "nodejs";
-export const revalidate = 3600;
+// Rendered on request and cached by Vercel's CDN for an hour (next.config.ts), not ISR.
+export const dynamic = "force-dynamic";
 
 export const alt = "Melbourne Pulse — Live Civic Pedestrian & Parking Telemetry";
 export const size = {

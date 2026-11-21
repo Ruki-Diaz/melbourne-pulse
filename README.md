@@ -63,7 +63,6 @@ flowchart LR
   H -. "facts only" .-> GEM["Gemini Flash<br/>writes the summary sentence"]
   GHA --> NEON[("Neon Postgres<br/>hourly aggregates")]
   NEON -- "read-only role" --> WEB["Next.js on Vercel<br/>/  /map  /plan  /about"]
-  H -- "revalidate" --> WEB
 ```
 
 ## Tech stack
@@ -234,9 +233,9 @@ the minimum size, **0.25 CU**.
 | Hourly ingest | fetch and summary take about 5 s of DB work, plus the page warm-up a few seconds later, so about 5.5 min awake per run. 24 × 30.4 = 730 runs × 5.5/60 h × 0.25 CU | 16.7 |
 | Daily forecast | 30.4 runs × ~6/60 h × 0.25 CU | 0.8 |
 | Monthly rain effect | 1 run × ~6/60 h × 0.25 CU | ~0 |
-| Website visitors | Pages are cached (`revalidate = 3600`) and re-rendered by the hourly Action while the DB is already awake. Visitors hit the cache. | ~0 |
+| Website visitors | Vercel's CDN caches each page for an hour; a render after that reads the DB, and can wake it if it lands outside an ingest. Usually visits are rare enough that this is small. | ~0–17 |
 | **Typical total** | | **~17.5** |
-| Worst case: GitHub delays the hourly cron past the page's 1-hour cache and a visitor arrives in that gap, every hour | + one extra 5-minute wake per hour = +16.7 | **~34** |
+| Worst case: every hour a page's CDN copy expires and a visitor re-renders it while the DB is asleep | + one extra 5-minute wake per hour = +16.7 (more if several pages or regions miss at different times) | **~34+** |
 
 This only holds if the site never queries the database per click. The sensor
 chart data therefore ships inside the cached page instead of coming from an API
@@ -254,8 +253,9 @@ call.
   request limit. Pinned to `gemini-3.8-flash`, falling back to
   `gemini-3.5-flash`. If both fail, or a reply's numbers don't match the real
   stats, a template sentence is used.
-- **Vercel Hobby:** one static page per hour plus about 24 calls a day to
-  `/api/revalidate`.
+- **Vercel Hobby:** pages render on request and are cached by the CDN for an
+  hour, so about one function call per page per region per hour and no ISR
+  writes.
 - **Map tiles:** [OpenFreeMap](https://openfreemap.org)'s dark style (free, no API key, no
   account), drawn by MapLibre GL inside Leaflet via `@maplibre/maplibre-gl-leaflet`.
 
@@ -289,8 +289,6 @@ call.
 |---|---|---|
 | Secret | `DATABASE_URL` | Neon pooled URL, owner role |
 | Secret | `GEMINI_API_KEY` | from [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
-| Secret | `REVALIDATE_SECRET` | `openssl rand -hex 32` (same value as in Vercel) |
-| Variable | `SITE_URL` | your Vercel URL, e.g. `https://melbourne-pulse-au.vercel.app` (add after deploying; until then the revalidate step is skipped) |
 
 Then set up the hourly trigger on cron-job.org: [docs/scheduling.md](docs/scheduling.md).
 
@@ -300,9 +298,8 @@ Then set up the hourly trigger on cron-job.org: [docs/scheduling.md](docs/schedu
    to `web`. The framework preset is detected as Next.js.
 2. **Environment Variables** (Production):
    - `DATABASE_URL_READONLY`: Neon pooled URL for `web_reader`
-   - `REVALIDATE_SECRET`: the same value as the GitHub secret
    - `NEXT_PUBLIC_SITE_URL`: your Vercel URL (used for share-card links)
-3. **Deploy**, then add the URL as the `SITE_URL` variable in GitHub.
+3. **Deploy**.
 
 ## Development
 

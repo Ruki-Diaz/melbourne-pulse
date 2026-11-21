@@ -5,7 +5,8 @@ import { getPlan } from "@/lib/plan";
 import type { Recommendation } from "@/lib/plan-core";
 
 export const runtime = "nodejs";
-export const revalidate = 3600;
+// Rendered on request and cached by Vercel's CDN for an hour (next.config.ts), not ISR.
+export const dynamic = "force-dynamic";
 
 export const alt = "Plan your CBD visit: the best time by forecast foot traffic and rain";
 export const size = { width: 1200, height: 630 };

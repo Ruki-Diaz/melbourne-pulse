@@ -14,7 +14,8 @@ import {
 import metrics from "@/lib/model-metrics.json";
 import { getPlanEvidence } from "@/lib/plan";
 
-export const revalidate = 3600;
+// Rendered on request and cached by Vercel's CDN for an hour (next.config.ts), not ISR.
+export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "About & Architecture · Melbourne Pulse",
@@ -105,9 +106,9 @@ export default async function AboutPage() {
 Open-Meteo ──────────────────┘      hourly   fetch.py, weather_forecast.py, summary.py → Gemini Flash
   weather forecast                  daily    predict.py (LightGBM + weather forecast)
   observed rain                     monthly  rain_effect.py
-                                         │ writes                    POST /api/revalidate
-                                         ▼                                    │
-                                    Neon Postgres ◄── read-only ── Next.js on Vercel ◄─┘
+                                         │ writes
+                                         ▼
+                                    Neon Postgres ◄── read-only ── Next.js on Vercel (CDN-cached, 1 h)
                                     hourly aggregates              /  /map  /plan  /about`}
               </pre>
             </div>
